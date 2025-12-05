@@ -15,7 +15,11 @@ module top(
     output reg [3:0] vgaGreen,
     output reg [3:0] vgaBlue,
     output  hsync,
-    output  vsync
+    output  vsync,
+    input wire jstk_miso,
+    output wire jstk_ss,
+    output wire jstk_mosi,
+    output wire jstk_sclk
     );
 
     reg [3:0] state;
@@ -168,35 +172,114 @@ module top(
     );
 
     // Pmod JA (JSTK2)
-    wire JA1; // ss_n
-    wire JA2; // mosi
-    wire JA3; // miso
-    wire JA4; // sclk
+    // wire jstk_ss; // ss_n
+    // wire jstk_mosi; // mosi
+    // wire jstk_miso; // miso
+    // wire jstk_sclk; // sclk
 
-    wire [9:0] jstk_x, jstk_y;
-    wire btn_jstk, btn_trigger, jstk_valid;
+    // Signal to send/receive data to/from PMOD peripherals
+    wire sndRec;
 
-    JSTK2 jstk_inst (
-        .clk(clk),
-        .rst(rst),
-        .jstk_ss_n(JA1),
-        .jstk_mosi(JA2),
-        .jstk_miso(JA3),
-        .jstk_sclk(JA4),
-        .jstk_x(jstk_x),
-        .jstk_y(jstk_y),
-        .btn_jstk(btn_jstk),
-        .btn_trigger(btn_trigger),
-        .data_valid(jstk_valid)
+    // Data read from PmodJSTK
+    wire [39:0] jstkData;
+    // Signal carrying joystick X data
+    wire [9:0] XposData;
+    // Signal carrying joystick Y data
+    wire [9:0] YposData;
+    // Holds data to be sent to PmodJSTK
+    wire [39:0] sndData;
+
+    //wire rst_n = ~rst;
+
+    // PmodJSTK u_jstk (
+    //     .CLK(clk),
+    //     .RST(rst),
+    //     .SS(jstk_ss),
+    //     .MOSI(jstk_mosi),
+    //     .MISO(jstk_miso),
+    //     .SCLK(jstk_sclk),
+    //     .sndRec(sndRec),
+    //     .DIN(40'h0000000000),
+    //     .DOUT(jstk_data)
+    // );
+    PmodJSTK PmodJSTK_Int(
+        .CLK(clk),
+        .RST(rst),
+        .sndRec(sndRec),
+        .DIN(sndData),
+        .MISO(jstk_miso),
+        .SS(jstk_ss),
+        .SCLK(jstk_sclk),
+        .MOSI(jstk_mosi),
+        .DOUT(jstkData)
     );
 
-    // 搖桿方向判斷（死區設 200，避免漂移）
-    wire move_up    = jstk_valid && (jstk_y > 512 + 200);
-    wire move_down  = jstk_valid && (jstk_y < 512 - 200);
-    wire move_left  = jstk_valid && (jstk_x < 512 - 200);
-    wire move_right = jstk_valid && (jstk_x > 512 + 200);
+    wire nothing;
+    ClkDiv_20Hz genSndRec(
+        .CLK(clk),
+        .RST(rst),
+        .CLKOUT(sndRec),
+        .CLKOUTn(nothing)
+    );
 
-    assign nums = {jstk_x/1000, jstk_x/100, jstk_x/10, jstk_x%10};
+    // Collect joystick state for position state
+    assign YposData = {jstkData[25:24], jstkData[39:32]};
+    assign XposData = {jstkData[9:8], jstkData[23:16]};
+
+    // Data to be sent to PmodJSTK, first byte signifies to control RGB on PmodJSTK
+    //assign sndData = {8'b10000100, RGBcolor, 8'b00000000};
+
+    
+
+
+    // // ==================== 產生週期性觸發（建議 1kHz ~ 2kHz 讀一次）==================
+    // // 100MHz 下大約 60,000 次才觸發一次 → 約 1.67kHz 讀取率（非常夠）
+    // reg [16:0] cnt_refresh;
+    // always @(posedge clk, posedge rst) begin
+    //     if (rst) begin
+    //         cnt_refresh <= 0;
+    //         sndRec <= 0;
+    //     end else begin
+    //         if (cnt_refresh == 17'd60_000) begin  // 100MHz / 60,000 ≈ 1667Hz
+    //             cnt_refresh <= 0;
+    //             sndRec <= 1;                      // 發一個脈衝
+    //         end else begin
+    //             cnt_refresh <= cnt_refresh + 1;
+    //             sndRec <= 0;
+    //         end
+    //     end
+    // end
+
+    // // ==================== 解析搖桿資料（建議用 reg 打一拍，避免時序問題）================
+    // reg [9:0] joy_x, joy_y;
+    // reg joy_btn, trigger_btn;
+
+    // always @(posedge clk) begin
+    //     if (sndRec) begin
+    //         // 剛觸發時先保持舊值
+    //         joy_x <= joy_x;
+    //         joy_y <= joy_y;
+    //         joy_btn   <= joy_btn;
+    //         trigger_btn <= trigger_btn;
+    //     end else if (!u_jstk.BUSY && cnt_refresh == 0) begin
+    //         // 傳輸完成那一拍才更新（最乾淨）
+    //         joy_x <= {jstk_data[39:32], jstk_data[31:30]};
+    //         joy_y <= {jstk_data[29:24], jstk_data[23:16]};
+    //         joy_btn     <= jstk_data[8];
+    //         trigger_btn <= jstk_data[9];
+    //     end
+    // end
+
+    // // 之後 joy_x, joy_y, joy_btn, trigger_btn 就是最新的搖桿狀態
+    // // 直接拿去控制你的遊戲就好了！
+
+    // 搖桿方向判斷（死區設 200，避免漂移）
+    wire move_up    = (YposData > 512 + 200);
+    wire move_down  = (YposData < 512 - 200);
+    wire move_left  = (XposData < 512 - 200);
+    wire move_right = (XposData > 512 + 200);
+
+    assign nums = {(XposData / 1000) % 10, (XposData / 100) % 10, (XposData / 10) % 10, XposData % 10};
 
     always @(*) begin
         //nums = {4'd0, 4'd4, 4'd2, 4'd8}; 
