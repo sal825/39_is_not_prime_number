@@ -152,12 +152,12 @@ module top(
 
     //7-segment===============================================================================================================
     wire [15:0] nums;
-    segment_logic seg_lg(
-        .nums(nums),
-        .clk(clk),
-        .rst(rst),
-        .state(state)
-    );
+    // segment_logic seg_lg(
+    //     .nums(nums),
+    //     .clk(clk),
+    //     .rst(rst),
+    //     .state(state)
+    // );
 
     SevenSegment seg(
         .display(DISPLAY),
@@ -167,10 +167,46 @@ module top(
         .clk(clk)
     );
 
+    // Pmod JA (JSTK2)
+    wire JA1; // ss_n
+    wire JA2; // mosi
+    wire JA3; // miso
+    wire JA4; // sclk
+
+    wire [9:0] jstk_x, jstk_y;
+    wire btn_jstk, btn_trigger, jstk_valid;
+
+    JSTK2 jstk_inst (
+        .clk(clk),
+        .rst(rst),
+        .jstk_ss_n(JA1),
+        .jstk_mosi(JA2),
+        .jstk_miso(JA3),
+        .jstk_sclk(JA4),
+        .jstk_x(jstk_x),
+        .jstk_y(jstk_y),
+        .btn_jstk(btn_jstk),
+        .btn_trigger(btn_trigger),
+        .data_valid(jstk_valid)
+    );
+
+    // 搖桿方向判斷（死區設 200，避免漂移）
+    wire move_up    = jstk_valid && (jstk_y > 512 + 200);
+    wire move_down  = jstk_valid && (jstk_y < 512 - 200);
+    wire move_left  = jstk_valid && (jstk_x < 512 - 200);
+    wire move_right = jstk_valid && (jstk_x > 512 + 200);
+
+    assign nums = {jstk_x/1000, jstk_x/100, jstk_x/10, jstk_x%10};
+
     always @(*) begin
         //nums = {4'd0, 4'd4, 4'd2, 4'd8}; 
-        LED = 15'hFFFF;
-        state <= 0;
+        LED = 0;
+        LED[3] = move_up;
+        LED[2] = move_down;
+        LED[1] = move_left;
+        LED[0] = move_right;
+        
+        state = 0;
     end
     
 
