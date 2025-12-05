@@ -222,10 +222,19 @@ module top(
         .CLKOUTn(nothing)
     );
 
-    // Collect joystick state for position state
-    assign YposData = {jstkData[25:24], jstkData[39:32]};
-    assign XposData = {jstkData[9:8], jstkData[23:16]};
+    // // Collect joystick state for position state
+    // assign YposData = {jstkData[25:24], jstkData[39:32]};
+    // assign XposData = {jstkData[9:8], jstkData[23:16]};
 
+    // X 座標：由 Byte 2 (低 8 bits) 和 Byte 4 (高 2 bits, bits 39, 38) 組成
+    assign XposData = {jstkData[39:38], jstkData[23:16]}; 
+    // Y 座標：由 Byte 1 (低 8 bits) 和 Byte 4 (高 2 bits, bits 37, 36) 組成
+    assign YposData = {jstkData[37:36], jstkData[15:8]};
+
+    // 按鈕：由 Byte 4 (bits 35, 34) 組成
+    wire btn_trigger = jstkData[35]; // Trigger (T)
+    wire btn_joystick = jstkData[34]; // Joystick (J)
+    // 您在 top.v 中沒有使用按鈕，但如果需要，應該這樣解析。
     // Data to be sent to PmodJSTK, first byte signifies to control RGB on PmodJSTK
     //assign sndData = {8'b10000100, RGBcolor, 8'b00000000};
 
