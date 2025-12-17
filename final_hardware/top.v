@@ -167,7 +167,7 @@ module top(
     SevenSegment seg(
         .display(DISPLAY),
         .digit(DIGIT),
-        .nums(posData),
+        .nums(posData),//只是測試用
         .rst(rst),
         .clk(clk)
     );
@@ -227,7 +227,7 @@ module top(
     // assign XposData = {jstkData[9:8], jstkData[23:16]};
 
     // Use state of switch 0 to select output of X position or Y position data to SSD
-    //我先隨便找三個switch
+    //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
     assign posData = (sw[5] == 1'b1) ? {jstkData[9:8], jstkData[23:16]} : {jstkData[25:24], jstkData[39:32]};
 
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
