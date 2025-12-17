@@ -123,17 +123,17 @@ set_property PACKAGE_PIN U18 [get_ports rst]
 
 # Pmod Header JA
 # Sch name = JA1
-set_property PACKAGE_PIN J1 [get_ports jstk_sclk]
-   set_property IOSTANDARD LVCMOS33 [get_ports jstk_sclk]
+set_property PACKAGE_PIN J1 [get_ports {SS}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {SS}]
 # Sch name = JA2
-set_property PACKAGE_PIN L2 [get_ports jstk_miso]
-   set_property IOSTANDARD LVCMOS33 [get_ports jstk_miso]
+set_property PACKAGE_PIN L2 [get_ports {MOSI}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {MOSI}]
 # Sch name = JA3
-set_property PACKAGE_PIN J2 [get_ports jstk_mosi]
-   set_property IOSTANDARD LVCMOS33 [get_ports jstk_mosi]
+set_property PACKAGE_PIN J2 [get_ports {MISO}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {MISO}]
 # Sch name = JA4
-set_property PACKAGE_PIN G2 [get_ports jstk_ss]
-   set_property IOSTANDARD LVCMOS33 [get_ports jstk_ss]
+set_property PACKAGE_PIN G2 [get_ports {SCLK}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {SCLK}]
 
 ## Sch name = JA7
 # set_property PACKAGE_PIN H1 [get_ports {JA[4]}]
