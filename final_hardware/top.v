@@ -235,7 +235,7 @@ module top(
     reg [9:0] img_x, img_y;
     localparam IMG_W = 160; // 圖片寬度
     localparam IMG_H = 120; // 圖片高度
-    // ===== 搖桿方向判斷（死區）=====
+    
     wire joy_left  = (jstk_X < 10'd400);
     wire joy_right = (jstk_X > 10'd600);
     wire joy_down  = (jstk_Y < 10'd400);
@@ -259,13 +259,13 @@ module top(
     end
 
 
-    // 3. VGA 位址計算
+
     // 判斷當前像素是否在圖片移動區域內
     wire is_img_area =
     (h_cnt >= img_x && h_cnt < img_x + IMG_W) &&
     (v_cnt >= img_y && v_cnt < img_y + IMG_H);
 
-    // ROM 取圖座標（不加 offset）
+    // ROM 取圖座標
     wire [9:0] tex_x = h_cnt - img_x;
     wire [9:0] tex_y = v_cnt - img_y;
 
@@ -275,7 +275,7 @@ module top(
         : 17'd0;
 
 
-    // 4. VGA 輸出邏輯
+    // VGA 
     always @(*) begin
         if (!valid) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
