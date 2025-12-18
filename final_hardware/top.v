@@ -252,10 +252,11 @@ module top(
             else if (joy_right && img_x < 640 - IMG_W)
                 img_x <= img_x + 3;
 
-            if (joy_down  && img_y < 480 - IMG_H)
-                img_y <= img_y + 3;
-            else if (jstkData[1] && img_y >=3)
+            
+            if (jstkData[1] && img_y >=3)
                 img_y <= img_y - 3;//向上
+            else if (joy_down  && img_y < 480 - IMG_H)
+                img_y <= img_y + 3;
         end
     end
 
