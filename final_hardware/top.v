@@ -97,19 +97,21 @@ module top(
     wire [9:0] h_cnt; //0-799（每掃一行就從 0 數到 799）0~639 是可視區
     wire [9:0] v_cnt;  //0-524（每掃完一行，v_cnt +1）0~479
 
-    mem_addr_gen mem_addr_gen_inst( //可以放state
-      .clk(clk),
-      .rst(rst),
-      .h_cnt(h_cnt),
-      .v_cnt(v_cnt),
-      .pixel_addr(pixel_addr),
-      .state(state)
-    );
+
+    wire [16:0] move_pixel_addr;
+    // mem_addr_gen mem_addr_gen_inst( //可以放state
+    //   .clk(clk),
+    //   .rst(rst),
+    //   .h_cnt(h_cnt),
+    //   .v_cnt(v_cnt),
+    //   .pixel_addr(pixel_addr),
+    //   .state(state)
+    // );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
       .clka(clk_25MHz),
       .wea(0),
-      .addra(pixel_addr),
+      .addra(move_pixel_addr),
       .dina(data[11:0]),
       .douta(pixel)
     ); 
@@ -124,12 +126,12 @@ module top(
       .v_cnt(v_cnt)
     );
 
-    always @(*) begin
-        if (valid) begin 
-            if (h_cnt < 320 && v_cnt < 240) {vgaRed, vgaGreen, vgaBlue} = pixel;
-            else {vgaRed, vgaGreen, vgaBlue} = ~pixel;
-        end
-    end
+    // always @(*) begin
+    //     if (valid) begin 
+    //         if (h_cnt < 320 && v_cnt < 240) {vgaRed, vgaGreen, vgaBlue} = pixel;
+    //         else {vgaRed, vgaGreen, vgaBlue} = ~pixel;
+    //     end
+    // end
 
     //keyboard===============================================================================================================
     localparam KEY_CODES_1 = 9'b0_0001_0110;
@@ -228,7 +230,61 @@ module top(
 
     // Use state of switch 0 to select output of X position or Y position data to SSD
     //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
-    assign posData = (sw[5] == 1'b1) ? {jstkData[9:8], jstkData[23:16]} : {jstkData[25:24], jstkData[39:32]};
+    wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
+    wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
+    reg [9:0] img_x, img_y;
+    localparam IMG_W = 160; // 圖片寬度
+    localparam IMG_H = 120; // 圖片高度
+    // ===== 搖桿方向判斷（死區）=====
+    wire joy_left  = (jstk_X < 10'd400);
+    wire joy_right = (jstk_X > 10'd600);
+    wire joy_down  = (jstk_Y < 10'd400);
+    wire joy_up    = (jstk_Y > 10'd600);
+
+    always @(posedge sndRec or posedge rst) begin
+        if (rst) begin
+            img_x <= 10'd0;//初始位置
+            img_y <= 10'd360; 
+        end else begin
+            if (joy_left  && img_x > 0)
+                img_x <= img_x - 3;
+            else if (joy_right && img_x < 640 - IMG_W)
+                img_x <= img_x + 3;
+
+            if (joy_up    && img_y < 480 - IMG_H)
+                img_y <= img_y + 3;
+            else if (joy_down && img_y >=3)
+                img_y <= img_y - 3;
+        end
+    end
+
+
+    // 3. VGA 位址計算
+    // 判斷當前像素是否在圖片移動區域內
+    wire is_img_area =
+    (h_cnt >= img_x && h_cnt < img_x + IMG_W) &&
+    (v_cnt >= img_y && v_cnt < img_y + IMG_H);
+
+    // ROM 取圖座標（不加 offset）
+    wire [9:0] tex_x = h_cnt - img_x;
+    wire [9:0] tex_y = v_cnt - img_y;
+
+    // pixel address
+    assign move_pixel_addr = is_img_area
+        ? (tex_y * IMG_W + tex_x)
+        : 17'd0;
+
+
+    // 4. VGA 輸出邏輯
+    always @(*) begin
+        if (!valid) begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end else if (is_img_area) begin
+            {vgaRed, vgaGreen, vgaBlue} = pixel; // 顯示圖片
+        end else begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h222; // 預設背景顏色 (深灰)
+        end
+    end
 
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     assign sndData = {8'b100000, {sw[6], sw[7]}};
