@@ -236,10 +236,11 @@ module top(
     localparam IMG_W = 160; // 圖片寬度
     localparam IMG_H = 120; // 圖片高度
     
-    wire joy_left  = (jstk_X < 10'd400);
-    wire joy_right = (jstk_X > 10'd600);
-    wire joy_down  = (jstk_Y < 10'd400);
-    wire joy_up    = (jstk_Y > 10'd600);
+    wire joy_left   = (jstk_X < 10'd400);
+    wire joy_right  = (jstk_X > 10'd600);
+    wire joy_up     = (jstk_Y < 10'd400);
+    wire joy_down   = (jstk_Y > 10'd600);
+    
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
@@ -251,10 +252,10 @@ module top(
             else if (joy_right && img_x < 640 - IMG_W)
                 img_x <= img_x + 3;
 
-            if (joy_up    && img_y < 480 - IMG_H)
+            if (joy_down  && img_y < 480 - IMG_H)
                 img_y <= img_y + 3;
-            else if (joy_down && img_y >=3)
-                img_y <= img_y - 3;
+            else if (jstkData[1] && img_y >=3)
+                img_y <= img_y - 3;//向上
         end
     end
 
@@ -294,7 +295,7 @@ module top(
                     LED <= 3'b000;
             end
             else begin
-                   LED <= {13'b0, jstkData[2], jstkData[1], jstkData[0]};
+                   LED <= {13'b0, jstkData[2], jstkData[1], jstkData[0]};//0是按搖桿，1是搖桿底下那顆按鈕
 
             end
     end
