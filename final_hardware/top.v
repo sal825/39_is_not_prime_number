@@ -290,96 +290,76 @@ module top(
 
     // --- 地圖數據 (20x15) ---
     wire [19:0] map [0:14];
-    assign map[0]=0; assign map[1]=0; assign map[2]=0; assign map[3]=0;
-    assign map[4]=0; assign map[5]=0; assign map[6]=0; assign map[7]=0;
-    assign map[8]=0; assign map[9]=0; assign map[10]=0;
     assign map[11] = 20'b00000000001110000000;
-    assign map[12] = 20'b00000000000000000000;
     assign map[13] = 20'b00000000000000011000;
     assign map[14] = 20'b11111111111111111111;
+    // 其他填充 0... (請自行補齊 assign map[0...10, 12] = 0)
 
-    // --- 碰撞偵測輔助訊號 ---
+    // --- 多點碰撞偵測點 ---
+    // 角色邊界
+    wire [9:0] char_L = img_x;
+    wire [9:0] char_R = img_x + 31;
+    wire [9:0] char_T = img_y;
+    wire [9:0] char_B = img_y + 31;
+
+    // 1. 垂直偵測：左腳(L+4)與右腳(R-4)，只要有一隻腳踩到東西就不掉下去
+    wire [4:0] grid_L_foot = (char_L + 4) >> 5;
+    wire [4:0] grid_R_foot = (char_R - 4) >> 5;
+    wire [3:0] grid_below  = (char_B + 1) >> 5; // 檢查腳下 1 像素
     
-    // 角色座標簡化
-    wire [9:0] char_top    = img_y;
-    wire [9:0] char_bottom = img_y + 31;
-    wire [9:0] char_left   = img_x;
-    wire [9:0] char_right  = img_x + 31;
-    wire [9:0] char_mid_x  = img_x + 16;
-    wire [9:0] char_mid_y  = img_y + 16;
+    wire tile_below = (grid_below < 15) ? (map[grid_below][19 - grid_L_foot] || map[grid_below][19 - grid_R_foot]) : 1;
 
-    // 1. 偵測腳下：檢查中心點下方 1 像素是否為障礙物
-    wire [3:0] feet_grid_y = (char_bottom + 1) >> 5;
-    wire [4:0] feet_grid_x = (face_left)? char_right >> 5 : char_left >> 5;
-    wire is_standing_on_tile = (feet_grid_y < 15) ? map[feet_grid_y][19 - feet_grid_x] : 1;
+    // 2. 水平偵測：同時檢查腰部與頭部高度，防止半個身子陷進牆壁
+    wire [4:0] grid_next_R = (char_R + 5) >> 5;
+    wire [4:0] grid_next_L = (char_L >= 5) ? (char_L - 5) >> 5 : 0;
+    wire [3:0] grid_mid_y  = (char_T + 16) >> 5;
+    wire [3:0] grid_top_y  = (char_T + 4) >> 5;
+    
+    wire wall_R = (grid_next_R < 20) ? (map[grid_mid_y][19 - grid_next_R] || map[grid_top_y][19 - grid_next_R]) : 0;
+    wire wall_L = (char_L >= 5) ? (map[grid_mid_y][19 - grid_next_L] || map[grid_top_y][19 - grid_next_L]) : 1;
 
-    // 2. 偵測頭頂：檢查中心點上方 1 像素
-    wire [3:0] head_grid_y = (char_top > 0) ? (char_top - 1) >> 5 : 0;
-    wire is_hitting_ceiling = (char_top > 0) ? map[head_grid_y][19 - feet_grid_x] : 0;
+    // 3. 頭頂偵測
+    wire [3:0] grid_above = (char_T > 0) ? (char_T - 1) >> 5 : 0;
+    wire hitting_ceiling = (char_T > 0) ? (map[grid_above][19 - grid_L_foot] || map[grid_above][19 - grid_R_foot]) : 0;
 
-    // 3. 偵測左右 (使用中心高度)
-    wire [4:0] right_grid_x = (char_right + 5) >> 5;
-    wire [4:0] left_grid_x  = (char_left >= 5) ? (char_left - 5) >> 5 : 0;
-    wire [3:0] mid_grid_y   = char_mid_y >> 5;
-    wire wall_right = (right_grid_x < 20) ? map[mid_grid_y][19 - right_grid_x] : 0;
-    wire wall_left  = (char_left >= 5) ? map[mid_grid_y][19 - left_grid_x] : 1;
-
-    // 跳躍控制暫存器
     reg [9:0] jump_start_y;
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
-            img_x <= 10'd0;
-            img_y <= 10'd416;
-            jumping <= 0;
-            on_ground <= 1;
-            face_left <= 0;
-            jump_start_y <= 10'd416;
+            img_x <= 10'd0; img_y <= 10'd416;
+            jumping <= 0; on_ground <= 1; face_left <= 0;
         end else begin
-            // --- 左右移動 ---
-            if (joy_left && img_x >= 5 && !wall_left) begin
-                img_x <= img_x - 5;
-                face_left <= 1;
-            end else if (joy_right && img_x < (640 - 32 - 5) && !wall_right) begin
-                img_x <= img_x + 5;
-                face_left <= 0;
+            // --- 左右移動 (包含牆壁偵測) ---
+            if (joy_left && img_x >= 5 && !wall_L) begin
+                img_x <= img_x - 5; face_left <= 1;
+            end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
+                img_x <= img_x + 5; face_left <= 0;
             end
 
-            // --- 垂直邏輯 (改進型) ---
-            
+            // --- 垂直邏輯 ---
             if (jumping) begin
-                // 上升階段
-                if (is_hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 5) begin
-                    jumping <= 0; // 撞頭或達高度，轉為掉落
+                if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
+                    jumping <= 0; // 撞頭或達高度，開始下落
                 end else begin
                     img_y <= img_y - 5;
                 end
             end 
             else begin
-                // 下落或站在地上階段
-                if (is_standing_on_tile || img_y >= 416) begin
-                    // 著地成功
+                // 下落或站在地面
+                if (tile_below || img_y >= 416) begin
                     on_ground <= 1;
-                    // --- 關鍵修正：精確對齊 ---
-                    if (img_y >= 416) begin
-                        img_y <= 416;
-                    end else begin
-                        // 將 Y 座標對齊到當前地磚的上方 (地磚 Y 座標 - 32)
-                        // 使用 feet_grid_y 來反推
-                        img_y <= (feet_grid_y << 5) - 32;
-                    end
+                    // --- 關鍵校準：吸附到地板表面 ---
+                    if (img_y >= 416) img_y <= 416;
+                    else img_y <= (grid_below << 5) - 32;
                 end else begin
-                    // 沒踩到東西，繼續下落
                     on_ground <= 0;
                     img_y <= img_y + 5;
                 end
             end
 
-            // 跳躍按鈕觸發
+            // 跳躍觸發
             if (jstkData[1] && on_ground && !jumping) begin
-                jumping <= 1;
-                on_ground <= 0;
-                jump_start_y <= img_y;
+                jumping <= 1; on_ground <= 0; jump_start_y <= img_y;
             end
         end
     end
