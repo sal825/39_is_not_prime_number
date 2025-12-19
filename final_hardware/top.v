@@ -19,7 +19,12 @@ module top(
     input wire MISO,
     output wire SS,
     output wire MOSI,
-    output wire SCLK
+    output wire SCLK,
+    input wire MISO_1,
+    output wire SS_1,
+    output wire MOSI_1,
+    output wire SCLK_1,
+    output reg [3:0] data_out
     );
 
     reg [3:0] state;
@@ -290,8 +295,20 @@ module top(
 
     // --- 地圖數據 (20x15) ---
     wire [19:0] map [0:14];
-    assign map[11] = 20'b00000000001110000000;
-    assign map[13] = 20'b00000000000000011000;
+    assign map[0]  = 20'b11111111111111111111;
+    assign map[1]  = 20'b10000000000000000001;
+    assign map[2]  = 20'b10000000000000001111;
+    assign map[3]  = 20'b10110000000001000001;
+    assign map[4]  = 20'b10000110000000000001;
+    assign map[5]  = 20'b10000000111111100001;
+    assign map[6]  = 20'b10000000000000000001;
+    assign map[7]  = 20'b10000000000000011111;
+    assign map[8]  = 20'b11110000110011100001;
+    assign map[9]  = 20'b10000000000000000001;
+    assign map[10] = 20'b10000011000000000001;
+    assign map[11] = 20'b11111111111111000001;
+    assign map[12] = 20'b10000000000000000001;
+    assign map[13] = 20'b10000000000000011111;
     assign map[14] = 20'b11111111111111111111;
     // 其他填充 0... (請自行補齊 assign map[0...10, 12] = 0)
 
@@ -326,7 +343,7 @@ module top(
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
-            img_x <= 10'd0; img_y <= 10'd416;
+            img_x <= 10'd32; img_y <= 10'd416;
             jumping <= 0; on_ground <= 1; face_left <= 0;
         end else begin
             // --- 左右移動 (包含牆壁偵測) ---
