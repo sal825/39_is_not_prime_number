@@ -290,8 +290,6 @@ module top(
     
     reg jumping;
     reg on_ground;              
-    parameter GROUND_Y = 416;  
-
 
     // --- 地圖數據 (20x15) ---
     wire [19:0] map [0:14];
@@ -313,7 +311,7 @@ module top(
     // 其他填充 0... (請自行補齊 assign map[0...10, 12] = 0)
 
     // --- 多點碰撞偵測點 ---
-    // 角色邊界
+    // 角色邊界 四個角
     wire [9:0] char_L = img_x;
     wire [9:0] char_R = img_x + 31;
     wire [9:0] char_T = img_y;
@@ -339,18 +337,23 @@ module top(
     wire [3:0] grid_above = (char_T > 0) ? (char_T - 1) >> 5 : 0;
     wire hitting_ceiling = (char_T > 0) ? (map[grid_above][19 - grid_L_foot] || map[grid_above][19 - grid_R_foot]) : 0;
 
-    reg [9:0] jump_start_y;
+    reg [9:0] jump_start_y;//紀錄跳躍時位子
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
-            img_x <= 10'd32; img_y <= 10'd416;
-            jumping <= 0; on_ground <= 1; face_left <= 0;
+            img_x <= 10'd32;
+            img_y <= 10'd416;
+            jumping <= 0;
+            on_ground <= 1;
+            face_left <= 0;
         end else begin
             // --- 左右移動 (包含牆壁偵測) ---
             if (joy_left && img_x >= 5 && !wall_L) begin
-                img_x <= img_x - 5; face_left <= 1;
+                img_x <= img_x - 5;
+                face_left <= 1;
             end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                img_x <= img_x + 5; face_left <= 0;
+                img_x <= img_x + 5;
+                face_left <= 0;
             end
 
             // --- 垂直邏輯 ---
@@ -367,7 +370,7 @@ module top(
                     on_ground <= 1;
                     // --- 關鍵校準：吸附到地板表面 ---
                     if (img_y >= 416) img_y <= 416;
-                    else img_y <= (grid_below << 5) - 32;
+                    else img_y <= (grid_below << 5) - 32;//限制站在地板上
                 end else begin
                     on_ground <= 0;
                     img_y <= img_y + 5;
@@ -376,7 +379,9 @@ module top(
 
             // 跳躍觸發
             if (jstkData[1] && on_ground && !jumping) begin
-                jumping <= 1; on_ground <= 0; jump_start_y <= img_y;
+                jumping <= 1;
+                on_ground <= 0;
+                jump_start_y <= img_y;
             end
         end
     end
@@ -397,8 +402,7 @@ module top(
 
 endmodule
 
-//4098 tile 64*64 (0-4095)
-//8194 idle 128*32 4張(4096-8191)
-//14338 walk 192*32 6張(8192-14335)
-//22530 jump 256*32 8張(14336-22527)
+//4098 1026 tile 64*64 (0-1023)
+//5122 idle 128*32 4張(1024-5119)
+//11266 walk 192*32 6張(5120-11263)
 //角色32*32
