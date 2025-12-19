@@ -241,11 +241,17 @@ module top(
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
     
+    reg jumping;
+    reg on_ground;              
+    parameter GROUND_Y = 360;          
+
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
             img_x <= 10'd0;//初始位置
             img_y <= 10'd360; 
+            jumping<=0;
+            on_ground <= 1; 
         end else begin
             if (joy_left  && img_x > 0)
                 img_x <= img_x - 3;
@@ -253,10 +259,23 @@ module top(
                 img_x <= img_x + 3;
 
             
-            if (jstkData[0] && img_y >=3)
-                img_y <= img_y - 3;//向上
-            else if (joy_down  && img_y < 480 - IMG_H)
-                img_y <= img_y + 3;
+            if (jstkData[1] && on_ground) begin
+                jumping<=1;
+                on_ground <= 0;
+            end
+            
+            if(jumping==1)begin
+                img_y<=img_y-4;
+                if(img_y<=GROUND_Y-30)begin
+                    jumping<=0;
+                end
+            end else if(jumping==0&&!on_ground)begin
+                img_y<=img_y+5;
+                if(img_y>=GROUND_Y)begin
+                    on_ground<=1;
+                end
+            end 
+           
         end
     end
 
@@ -303,3 +322,7 @@ module top(
     
 
 endmodule
+
+//4098 tile
+//8194 walk
+//腳色32*32
