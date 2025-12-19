@@ -96,22 +96,67 @@ module top(
     wire valid;
     wire [9:0] h_cnt; //0-799（每掃一行就從 0 數到 799）0~639 是可視區
     wire [9:0] v_cnt;  //0-524（每掃完一行，v_cnt +1）0~479
+    reg [9:0] img_x, img_y;
+    reg [2:0] frame_idx = 0;
+    reg [31:0] cnt;
+    // --- 角色移動狀態判斷 ---
+    wire is_moving;
+    reg prev_moving; // 用於偵測狀態切換
+    reg face_left; 
 
+    // --- 動畫幀計數邏輯 ---
+    always @(posedge clk_25MHz or posedge rst) begin
+        if (rst) begin
+            cnt <= 0;
+            frame_idx <= 0;
+            prev_moving <= 0;
+        end else begin 
+            // 如果狀態從移動變靜止（或反之），立刻重置幀索引，避免索引超出邊界
+            if (is_moving != prev_moving) begin
+                frame_idx <= 0;
+                cnt <= 0;
+                prev_moving <= is_moving;
+            end else begin
+                cnt <= cnt + 1;
+                // 調整動畫播放速度 (25MHz 下，4,000,000 約 0.16秒一幀)
+                if (cnt >= 4000000) begin 
+                    cnt <= 0;
+                    if (is_moving) begin
+                        // 走路動畫 6 格 (0-5)
+                        if (frame_idx >= 5) frame_idx <= 0;
+                        else frame_idx <= frame_idx + 1;
+                    end else begin
+                        // 待機動畫 4 格 (0-3)
+                        if (frame_idx >= 3) frame_idx <= 0;
+                        else frame_idx <= frame_idx + 1;
+                    end
+                end
+            end
+        end
+    end
 
-    wire [16:0] move_pixel_addr;
-    // mem_addr_gen mem_addr_gen_inst( //可以放state
-    //   .clk(clk),
-    //   .rst(rst),
-    //   .h_cnt(h_cnt),
-    //   .v_cnt(v_cnt),
-    //   .pixel_addr(pixel_addr),
-    //   .state(state)
-    // );
+    wire show_pixel_sync;
+    
+    // --- 實例化地址生成器 (記得接上 is_moving) ---
+    mem_addr_gen mem_addr_gen_inst(
+        .clk(clk_25MHz),
+        .rst(rst),
+        .h_cnt(h_cnt),
+        .v_cnt(v_cnt),
+        .vsync(vsync),
+        .img_x(img_x),
+        .img_y(img_y),
+        .frame_idx(frame_idx),
+        .is_moving(is_moving),      // 傳入移動狀態
+        .pixel_addr(pixel_addr),
+        .out_show_pixel(show_pixel_sync),
+        .face_left(face_left)
+    );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
       .clka(clk_25MHz),
       .wea(0),
-      .addra(move_pixel_addr),
+      .addra(pixel_addr),
       .dina(data[11:0]),
       .douta(pixel)
     ); 
@@ -126,12 +171,24 @@ module top(
       .v_cnt(v_cnt)
     );
 
-    // always @(*) begin
-    //     if (valid) begin 
-    //         if (h_cnt < 320 && v_cnt < 240) {vgaRed, vgaGreen, vgaBlue} = pixel;
-    //         else {vgaRed, vgaGreen, vgaBlue} = ~pixel;
-    //     end
-    // end
+    // 2. valid 也需要同步延遲 (對齊 show_pixel_sync)
+    reg [3:0] valid_pipe;
+    always @(posedge clk_25MHz) begin
+        valid_pipe <= {valid_pipe[2:0], valid};
+    end
+    wire valid_sync = valid_pipe[2]; // 這裡的 index 要跟 mem_addr_gen 裡面的一樣
+
+    // 3. 顯示邏輯
+    always @(*) begin
+        if (!valid_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end else if (show_pixel_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = pixel; 
+        end else begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000; 
+        end
+    end
+    
 
     //keyboard===============================================================================================================
     localparam KEY_CODES_1 = 9'b0_0001_0110;
@@ -174,11 +231,7 @@ module top(
         .clk(clk)
     );
 
-    // Pmod JA (JSTK2)
-    // wire SS; // ss_n
-    // wire MOSI; // mosi
-    // wire MISO; // miso
-    // wire SCLK; // sclk
+    //joy stick=============================================================================================================
 
     // Signal to send/receive data to/from PMOD peripherals
     wire sndRec;
@@ -192,19 +245,6 @@ module top(
     // Holds data to be sent to PmodJSTK
     wire [9:0] sndData;
     
-    //wire rst_n = ~rst;
-
-    // PmodJSTK u_jstk (
-    //     .CLK(clk),
-    //     .RST(rst),
-    //     .SS(SS),
-    //     .MOSI(MOSI),
-    //     .MISO(MISO),
-    //     .SCLK(SCLK),
-    //     .sndRec(sndRec),
-    //     .DIN(40'h0000000000),
-    //     .DOUT(jstk_data)
-    // );
     PmodJSTK PmodJSTK_Int(
         .CLK(clk),
         .RST(rst),
@@ -232,78 +272,115 @@ module top(
     //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
     wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
     wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
-    reg [9:0] img_x, img_y;
-    localparam IMG_W = 160; // 圖片寬度
-    localparam IMG_H = 120; // 圖片高度
+    
+    localparam IMG_W = 32;//160; // 圖片寬度
+    localparam IMG_H = 32;//120; // 圖片高度
     
     wire joy_left   = (jstk_X < 10'd400);
     wire joy_right  = (jstk_X > 10'd600);
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
+
+    assign is_moving = joy_left || joy_right;
     
     reg jumping;
     reg on_ground;              
-    parameter GROUND_Y = 360;          
+    parameter GROUND_Y = 416;  
 
+
+    // --- 地圖數據 (20x15) ---
+    wire [19:0] map [0:14];
+    assign map[0]=0; assign map[1]=0; assign map[2]=0; assign map[3]=0;
+    assign map[4]=0; assign map[5]=0; assign map[6]=0; assign map[7]=0;
+    assign map[8]=0; assign map[9]=0; assign map[10]=0;
+    assign map[11] = 20'b00000000001110000000;
+    assign map[12] = 20'b00000000000000000000;
+    assign map[13] = 20'b00000000000000011000;
+    assign map[14] = 20'b11111111111111111111;
+
+    // --- 碰撞偵測輔助訊號 ---
+    
+    // 角色座標簡化
+    wire [9:0] char_top    = img_y;
+    wire [9:0] char_bottom = img_y + 31;
+    wire [9:0] char_left   = img_x;
+    wire [9:0] char_right  = img_x + 31;
+    wire [9:0] char_mid_x  = img_x + 16;
+    wire [9:0] char_mid_y  = img_y + 16;
+
+    // 1. 偵測腳下：檢查中心點下方 1 像素是否為障礙物
+    wire [3:0] feet_grid_y = (char_bottom + 1) >> 5;
+    wire [4:0] feet_grid_x = (face_left)? char_right >> 5 : char_left >> 5;
+    wire is_standing_on_tile = (feet_grid_y < 15) ? map[feet_grid_y][19 - feet_grid_x] : 1;
+
+    // 2. 偵測頭頂：檢查中心點上方 1 像素
+    wire [3:0] head_grid_y = (char_top > 0) ? (char_top - 1) >> 5 : 0;
+    wire is_hitting_ceiling = (char_top > 0) ? map[head_grid_y][19 - feet_grid_x] : 0;
+
+    // 3. 偵測左右 (使用中心高度)
+    wire [4:0] right_grid_x = (char_right + 5) >> 5;
+    wire [4:0] left_grid_x  = (char_left >= 5) ? (char_left - 5) >> 5 : 0;
+    wire [3:0] mid_grid_y   = char_mid_y >> 5;
+    wire wall_right = (right_grid_x < 20) ? map[mid_grid_y][19 - right_grid_x] : 0;
+    wire wall_left  = (char_left >= 5) ? map[mid_grid_y][19 - left_grid_x] : 1;
+
+    // 跳躍控制暫存器
+    reg [9:0] jump_start_y;
 
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
-            img_x <= 10'd0;//初始位置
-            img_y <= 10'd360; 
-            jumping<=0;
-            on_ground <= 1; 
+            img_x <= 10'd0;
+            img_y <= 10'd416;
+            jumping <= 0;
+            on_ground <= 1;
+            face_left <= 0;
+            jump_start_y <= 10'd416;
         end else begin
-            if (joy_left  && img_x > 0)
-                img_x <= img_x - 3;
-            else if (joy_right && img_x < 640 - IMG_W)
-                img_x <= img_x + 3;
-
-            
-            if (jstkData[1] && on_ground) begin
-                jumping<=1;
-                on_ground <= 0;
+            // --- 左右移動 ---
+            if (joy_left && img_x >= 5 && !wall_left) begin
+                img_x <= img_x - 5;
+                face_left <= 1;
+            end else if (joy_right && img_x < (640 - 32 - 5) && !wall_right) begin
+                img_x <= img_x + 5;
+                face_left <= 0;
             end
+
+            // --- 垂直邏輯 (改進型) ---
             
-            if(jumping==1)begin
-                img_y<=img_y-4;
-                if(img_y<=GROUND_Y-30)begin
-                    jumping<=0;
-                end
-            end else if(jumping==0&&!on_ground)begin
-                img_y<=img_y+5;
-                if(img_y>=GROUND_Y)begin
-                    on_ground<=1;
+            if (jumping) begin
+                // 上升階段
+                if (is_hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 5) begin
+                    jumping <= 0; // 撞頭或達高度，轉為掉落
+                end else begin
+                    img_y <= img_y - 5;
                 end
             end 
-           
-        end
-    end
+            else begin
+                // 下落或站在地上階段
+                if (is_standing_on_tile || img_y >= 416) begin
+                    // 著地成功
+                    on_ground <= 1;
+                    // --- 關鍵修正：精確對齊 ---
+                    if (img_y >= 416) begin
+                        img_y <= 416;
+                    end else begin
+                        // 將 Y 座標對齊到當前地磚的上方 (地磚 Y 座標 - 32)
+                        // 使用 feet_grid_y 來反推
+                        img_y <= (feet_grid_y << 5) - 32;
+                    end
+                end else begin
+                    // 沒踩到東西，繼續下落
+                    on_ground <= 0;
+                    img_y <= img_y + 5;
+                end
+            end
 
-
-
-    // 判斷當前像素是否在圖片移動區域內
-    wire is_img_area =
-    (h_cnt >= img_x && h_cnt < img_x + IMG_W) &&
-    (v_cnt >= img_y && v_cnt < img_y + IMG_H);
-
-    // ROM 取圖座標
-    wire [9:0] tex_x = h_cnt - img_x;
-    wire [9:0] tex_y = v_cnt - img_y;
-
-    // pixel address
-    assign move_pixel_addr = is_img_area
-        ? (tex_y * IMG_W + tex_x)
-        : 17'd0;
-
-
-    // VGA 
-    always @(*) begin
-        if (!valid) begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-        end else if (is_img_area) begin
-            {vgaRed, vgaGreen, vgaBlue} = pixel; // 顯示圖片
-        end else begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h222; // 預設背景顏色 (深灰)
+            // 跳躍按鈕觸發
+            if (jstkData[1] && on_ground && !jumping) begin
+                jumping <= 1;
+                on_ground <= 0;
+                jump_start_y <= img_y;
+            end
         end
     end
 
@@ -323,6 +400,8 @@ module top(
 
 endmodule
 
-//4098 tile
-//8194 walk
-//腳色32*32
+//4098 tile 64*64 (0-4095)
+//8194 idle 128*32 4張(4096-8191)
+//14338 walk 192*32 6張(8192-14335)
+//22530 jump 256*32 8張(14336-22527)
+//角色32*32
