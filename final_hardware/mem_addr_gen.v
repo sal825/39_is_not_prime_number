@@ -9,8 +9,11 @@ module mem_addr_gen(
     input [2:0] frame_idx,  // 當前動畫播放到第幾幀 (例如 0~3 或 0~5)
     input is_moving,        // 角色是否正在移動 (決定播放哪組動畫)
     input face_left,        // 角色是否面向左邊 (決定是否鏡像翻轉)
+    input [4:0] gate_open,      // 新增：門是否開啟 (來自 Top)
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
-    output wire out_show_pixel        // 輸出給 Top 的顯示開關 (經過延遲同步)
+    output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
+    output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
+    output reg out_is_char_sync // 新增：同步後的「正在畫角色」訊號
     );
 
     // 角色圖塊的大小固定為 32x32 像素
@@ -22,13 +25,13 @@ module mem_addr_gen(
     // 在每幀畫面的 vsync 期間才鎖定一次 img_x/y，確保在繪製同一幀畫面時，角色的座標是固定的。
     reg [9:0] x_s, y_s;
     always @(posedge vsync or posedge rst) begin
-        if (rst) {x_s, y_s} <= {10'd0, 10'd416};
+        if (rst) {x_s, y_s} <= {10'd64, 10'd416};
         else {x_s, y_s} <= {img_x, img_y};
     end
 
     // --- 2. 區域判斷 (Combinational Logic - T0 階段) ---
     // 判斷當前 VGA 掃描點 (h_cnt, v_cnt) 是否落在角色區域內
-    wire is_char = (h_cnt >= x_s && h_cnt < x_s + IMG_W) && (v_cnt >= y_s && v_cnt < y_s + IMG_H);
+    wire is_char = (h_cnt >= x_s + 3 && h_cnt < x_s + IMG_W - 3) && (v_cnt >= y_s + 5 && v_cnt < y_s + IMG_H);
     
     // 將螢幕座標轉為網格座標 (>> 5 等於除以 32)，用來查找 20x15 的地圖陣列
     wire [4:0] gx = h_cnt >> 5; 
@@ -36,25 +39,45 @@ module mem_addr_gen(
     
     // --- 3. 地圖定義 (Map Array) ---
     // 每個 bit 代表一個 32x32 的區塊。1: 障礙物/地板, 0: 空地
-    wire [19:0] map [0:14];
-    assign map[0]  = 20'b11111111111111111111; // 頂部牆壁
-    assign map[1]  = 20'b10000000000000000001; 
-    assign map[2]  = 20'b10000000000000001111; // 平台
-    assign map[3]  = 20'b10110000000001000001;
-    assign map[4]  = 20'b10000110000000000001;
-    assign map[5]  = 20'b10000000111111100001;
-    assign map[6]  = 20'b10000000000000000001;
-    assign map[7]  = 20'b10000000000000011111;
-    assign map[8]  = 20'b11110000110011100001;
-    assign map[9]  = 20'b10000000000000000001;
-    assign map[10] = 20'b10000011000000000001;
-    assign map[11] = 20'b11111111111111000001;
-    assign map[12] = 20'b10000000000000000001;
-    assign map[13] = 20'b10000000000000011111;
-    assign map[14] = 20'b11111111111111111111; // 地板
+    wire [79:0] map [0:14];
 
+    localparam T_EMPTY = 4'h0;
+    localparam T_GATE_1  = 4'h1;
+    localparam T_GATE_2  = 4'h2;
+    localparam T_GATE_3  = 4'h3;
+    localparam T_PLATE_1 = 4'h4;
+    localparam T_PLATE_2 = 4'h5;
+    localparam T_PLATE_3 = 4'h6;
+    localparam T_EXIT  = 4'h7;
+    localparam T_WALL  = 4'h8;
+
+    assign map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
+    assign map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
+    assign map[2]  = {20{T_EMPTY}};
+    assign map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[4]  = {20{T_EMPTY}};
+    assign map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[6]  = {20{T_EMPTY}};
+    assign map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[8]  = {20{T_EMPTY}};
+    assign map[9]  = {{10{T_WALL}}, {10{T_EMPTY}}}; 
+    assign map[10] = {20{T_EMPTY}};
+    assign map[11] = {{20{T_PLATE_1}}, {5{T_EXIT}}, {3{T_PLATE_1}}, {2{T_GATE_1}}};
+    assign map[12] = {20{T_EMPTY}};
+    assign map[13] = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}};
+    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_PLATE_3}}};
+
+
+    wire [3:0] current_tile_id = (h_cnt < 640 && v_cnt < 480) ? map[gy][(19-gx)*4 +: 4] : T_EMPTY;//往上取4個bit
     // 判斷當前掃描點是否落在地圖中的「1」區域
-    wire is_tile = (h_cnt < 640 && v_cnt < 480) ? map[gy][19-gx] : 0;
+    wire is_tile = (current_tile_id == T_WALL) || 
+                   (current_tile_id == T_EXIT) || 
+                   (current_tile_id == T_PLATE_1) ||
+                   (current_tile_id == T_PLATE_2) ||
+                   (current_tile_id == T_PLATE_3) ||
+                   (current_tile_id == T_GATE_1 && !gate_open[4]) ||
+                   (current_tile_id == T_GATE_2 && !gate_open[3]) ||
+                   (current_tile_id == T_GATE_3 && !gate_open[2]);
     
     // 最終顯示開關：只要是角色或是地圖塊就要亮起顏色
     wire comb_show = is_char || is_tile;
@@ -75,6 +98,17 @@ module mem_addr_gen(
             ly = v_cnt[4:0];    // 等同於 v_cnt % 32
             b_off = 0;          // 地板圖磚在 COE 最前面 (0)
             coeff = 32;         // 地板圖檔原始寬度是 32
+            case (current_tile_id)
+                T_WALL:  b_off = 0;
+                T_EXIT:  b_off = 11264;
+                T_PLATE_1: b_off = 0;
+                T_GATE_1:  b_off = 12288;
+                T_PLATE_2: b_off = 0;
+                T_GATE_2:  b_off = 12288;
+                T_PLATE_3: b_off = 0;
+                T_GATE_3:  b_off = 12288;
+                default: b_off = 0;
+            endcase
         end 
         else if (is_char) begin 
             // 角色模式
@@ -103,17 +137,30 @@ module mem_addr_gen(
     // T2: BRAM 內部處理。
     // T3: BRAM 噴出數據。
     // 因此控制訊號 `out_show_pixel` 必須延遲對應的拍數才能跟顏色對齊。
+    reg [3:0] id_pipe_1, id_pipe_2, id_pipe_3; // ID 的延遲鏈
+    reg [1:0] char_p;
     reg [3:0] delay_pipe; 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             pixel_addr <= 0;
             delay_pipe <= 4'b0000;
+            {id_pipe_1, id_pipe_2, id_pipe_3, out_tile_id} <= 0;
+            {char_p, out_is_char_sync} <= 0;
         end else begin
             // 計算 1D 地址公式：起始位址 + (列偏移 * 圖片寬) + 行偏移
             pixel_addr <= b_off + (ly * coeff) + lx;
             
             // 將顯示開關推入移位暫存器
-            delay_pipe <= {delay_pipe[2:0], comb_show};
+            //delay_pipe <= {delay_pipe[2:0], comb_show};
+            delay_pipe <= {delay_pipe[2:0], (is_char || (current_tile_id != 4'h0))};
+            // Tile ID 也要同步延遲 3 拍 (對齊 delay_pipe[2])
+            id_pipe_1 <= current_tile_id;
+            id_pipe_2 <= id_pipe_1;
+            out_tile_id <= id_pipe_2; // 此輸出會與 BRAM 的 pixel 同時抵達
+
+            // 同步「是否正在畫角色」訊號
+            char_p <= {char_p[0], is_char};
+            out_is_char_sync <= char_p[1];
         end
     end
 

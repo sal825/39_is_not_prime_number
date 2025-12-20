@@ -141,6 +141,9 @@ module top(
     end
 
     wire show_pixel_sync;
+    wire [3:0] current_id_sync;
+    wire [4:0] gate_open;
+    wire is_char_sync;
     
     // --- 實例化地址生成器 (記得接上 is_moving) ---
     mem_addr_gen mem_addr_gen_inst(
@@ -155,7 +158,10 @@ module top(
         .is_moving(is_moving),      // 傳入移動狀態
         .pixel_addr(pixel_addr),
         .out_show_pixel(show_pixel_sync),
-        .face_left(face_left)
+        .face_left(face_left),
+        .out_tile_id(current_id_sync),
+        .gate_open(gate_open),
+        .out_is_char_sync(is_char_sync)
     );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
@@ -183,16 +189,7 @@ module top(
     end
     wire valid_sync = valid_pipe[2]; // 這裡的 index 要跟 mem_addr_gen 裡面的一樣
 
-    // 3. 顯示邏輯
-    always @(*) begin
-        if (!valid_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-        end else if (show_pixel_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = pixel; 
-        end else begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000; 
-        end
-    end
+    
     
 
     //keyboard===============================================================================================================
@@ -292,53 +289,89 @@ module top(
     reg on_ground;              
 
     // --- 地圖數據 (20x15) ---
-    wire [19:0] map [0:14];
-    assign map[0]  = 20'b11111111111111111111;
-    assign map[1]  = 20'b10000000000000000001;
-    assign map[2]  = 20'b10000000000000001111;
-    assign map[3]  = 20'b10110000000001000001;
-    assign map[4]  = 20'b10000110000000000001;
-    assign map[5]  = 20'b10000000111111100001;
-    assign map[6]  = 20'b10000000000000000001;
-    assign map[7]  = 20'b10000000000000011111;
-    assign map[8]  = 20'b11110000110011100001;
-    assign map[9]  = 20'b10000000000000000001;
-    assign map[10] = 20'b10000011000000000001;
-    assign map[11] = 20'b11111111111111000001;
-    assign map[12] = 20'b10000000000000000001;
-    assign map[13] = 20'b10000000000000011111;
-    assign map[14] = 20'b11111111111111111111;
-    // 其他填充 0... (請自行補齊 assign map[0...10, 12] = 0)
+    wire [79:0] map [0:14];
+
+    localparam T_EMPTY = 4'h0;
+    localparam T_GATE_1  = 4'h1;
+    localparam T_GATE_2  = 4'h2;
+    localparam T_GATE_3  = 4'h3;
+    localparam T_PLATE_1 = 4'h4;
+    localparam T_PLATE_2 = 4'h5;
+    localparam T_PLATE_3 = 4'h6;
+    localparam T_EXIT  = 4'h7;
+    localparam T_WALL  = 4'h8;
+    assign map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
+    assign map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
+    assign map[2]  = {20{T_EMPTY}};
+    assign map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[4]  = {20{T_EMPTY}};
+    assign map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[6]  = {20{T_EMPTY}};
+    assign map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+    assign map[8]  = {20{T_EMPTY}};
+    assign map[9]  = {{10{T_WALL}}, {10{T_EMPTY}}}; 
+    assign map[10] = {20{T_EMPTY}};
+    assign map[11] = {{20{T_PLATE_1}}, {5{T_EXIT}}, {3{T_PLATE_1}}, {2{T_GATE_1}}};
+    assign map[12] = {20{T_EMPTY}};
+    assign map[13] = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}};
+    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_PLATE_3}}};
 
     // --- 多點碰撞偵測點 ---
-    // 角色邊界 四個角
     wire [9:0] char_L = img_x;
     wire [9:0] char_R = img_x + 31;
     wire [9:0] char_T = img_y;
     wire [9:0] char_B = img_y + 31;
 
-    // 1. 垂直偵測：左腳(L+4)與右腳(R-4)，只要有一隻腳踩到東西就不掉下去
+    //wire char_now = ((v_cnt - img_x < 32 && v_cnt >= img_x) && (h_cnt - img_y < 32 && h_cnt >= img_y));
+
+    // 1. 垂直偵測：左腳(L+4)與右腳(R-4)
     wire [4:0] grid_L_foot = (char_L + 4) >> 5;
     wire [4:0] grid_R_foot = (char_R - 4) >> 5;
-    wire [3:0] grid_below  = (char_B + 1) >> 5; // 檢查腳下 1 像素
+    wire [3:0] grid_below  = (char_B + 1) >> 5; 
     
-    wire tile_below = (grid_below < 15) ? (map[grid_below][19 - grid_L_foot] || map[grid_below][19 - grid_R_foot]) : 1;
+    // 取得腳下兩點的 Tile ID
+    wire [3:0] tile_id_below_L = (grid_below < 15) ? map[grid_below][(19 - grid_L_foot)*4 +: 4] : T_WALL;
+    wire [3:0] tile_id_below_R = (grid_below < 15) ? map[grid_below][(19 - grid_R_foot)*4 +: 4] : T_WALL;
+    // 只要不是 EMPTY 就視為地板
+    wire tile_below = (tile_id_below_L >= T_PLATE_1) || (tile_id_below_R >= T_PLATE_1)
+                     || (tile_id_below_L == T_GATE_1 && !gate_open[4]) || (tile_id_below_R == T_GATE_1 && !gate_open[4])
+                     || (tile_id_below_L == T_GATE_2 && !gate_open[3]) || (tile_id_below_R == T_GATE_2 && !gate_open[3])
+                     || (tile_id_below_L == T_GATE_3 && !gate_open[2]) || (tile_id_below_R == T_GATE_3 && !gate_open[2]);
+    assign gate_open = {(tile_id_below_L == T_PLATE_1), (tile_id_below_L == T_PLATE_2), (tile_id_below_L == T_PLATE_3), 2'b0};
 
-    // 2. 水平偵測：同時檢查腰部與頭部高度，防止半個身子陷進牆壁
+    // 2. 水平偵測
     wire [4:0] grid_next_R = (char_R + 5) >> 5;
     wire [4:0] grid_next_L = (char_L >= 5) ? (char_L - 5) >> 5 : 0;
     wire [3:0] grid_mid_y  = (char_T + 16) >> 5;
     wire [3:0] grid_top_y  = (char_T + 4) >> 5;
     
-    wire wall_R = (grid_next_R < 20) ? (map[grid_mid_y][19 - grid_next_R] || map[grid_top_y][19 - grid_next_R]) : 0;
-    wire wall_L = (char_L >= 5) ? (map[grid_mid_y][19 - grid_next_L] || map[grid_top_y][19 - grid_next_L]) : 1;
+    // 右側偵測
+    wire [3:0] tile_id_R_mid = (grid_next_R < 20) ? map[grid_mid_y][(19 - grid_next_R)*4 +: 4] : T_EMPTY;
+    wire [3:0] tile_id_R_top = (grid_next_R < 20) ? map[grid_top_y][(19 - grid_next_R)*4 +: 4] : T_EMPTY;
+    wire wall_R = (tile_id_R_mid >= T_PLATE_1) || (tile_id_R_top >= T_PLATE_1)
+                || (tile_id_R_mid == T_GATE_1 && !gate_open[4]) || (tile_id_R_top == T_GATE_1 && !gate_open[4])
+                || (tile_id_R_mid == T_GATE_2 && !gate_open[3]) || (tile_id_R_top == T_GATE_2 && !gate_open[3])
+                || (tile_id_R_mid == T_GATE_3 && !gate_open[2]) || (tile_id_R_top == T_GATE_3 && !gate_open[2]);
+
+    // 左側偵測
+    wire [3:0] tile_id_L_mid = (char_L >= 5) ? map[grid_mid_y][(19 - grid_next_L)*4 +: 4] : T_WALL;
+    wire [3:0] tile_id_L_top = (char_L >= 5) ? map[grid_top_y][(19 - grid_next_L)*4 +: 4] : T_WALL;
+    wire wall_L = (tile_id_L_mid >= T_PLATE_1) || (tile_id_L_top >= T_PLATE_1)
+                || (tile_id_L_mid == T_GATE_1 && !gate_open[4]) || (tile_id_L_top == T_GATE_1 && !gate_open[4])
+                || (tile_id_L_mid == T_GATE_2 && !gate_open[3]) || (tile_id_L_top == T_GATE_2 && !gate_open[3])
+                || (tile_id_L_mid == T_GATE_3 && !gate_open[2]) || (tile_id_L_top == T_GATE_3 && !gate_open[2]);
 
     // 3. 頭頂偵測
     wire [3:0] grid_above = (char_T > 0) ? (char_T - 1) >> 5 : 0;
-    wire hitting_ceiling = (char_T > 0) ? (map[grid_above][19 - grid_L_foot] || map[grid_above][19 - grid_R_foot]) : 0;
+    wire [3:0] tile_id_above_L = (char_T > 0) ? map[grid_above][(19 - grid_L_foot)*4 +: 4] : T_EMPTY;
+    wire [3:0] tile_id_above_R = (char_T > 0) ? map[grid_above][(19 - grid_R_foot)*4 +: 4] : T_EMPTY;
+    wire hitting_ceiling = (tile_id_above_L >= T_PLATE_1) || (tile_id_above_R >= T_PLATE_1)
+                || (tile_id_above_L == T_GATE_1 && !gate_open[4]) || (tile_id_above_R == T_GATE_1 && !gate_open[4])
+                || (tile_id_above_L == T_GATE_2 && !gate_open[3]) || (tile_id_above_R == T_GATE_2 && !gate_open[3])
+                || (tile_id_above_L == T_GATE_3 && !gate_open[2]) || (tile_id_above_R == T_GATE_3 && !gate_open[2]);
 
-    reg [9:0] jump_start_y;//紀錄跳躍時位子
-
+    reg [9:0] jump_start_y;
+    // --- 跳躍與移動邏輯 (保持不變) ---
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
             img_x <= 10'd32;
@@ -347,42 +380,36 @@ module top(
             on_ground <= 1;
             face_left <= 0;
         end else begin
-            // --- 左右移動 (包含牆壁偵測) ---
             if (joy_left && img_x >= 5 && !wall_L) begin
-                img_x <= img_x - 5;
-                face_left <= 1;
+                img_x <= img_x - 5; face_left <= 1;
             end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                img_x <= img_x + 5;
-                face_left <= 0;
+                img_x <= img_x + 5; face_left <= 0;
             end
 
-            // --- 垂直邏輯 ---
             if (jumping) begin
                 if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                    jumping <= 0; // 撞頭或達高度，開始下落
+                    jumping <= 0;
                 end else begin
                     img_y <= img_y - 5;
                 end
             end 
             else begin
-                // 下落或站在地面
                 if (tile_below || img_y >= 416) begin
                     on_ground <= 1;
-                    // --- 關鍵校準：吸附到地板表面 ---
                     if (img_y >= 416) img_y <= 416;
-                    else img_y <= (grid_below << 5) - 32;//限制站在地板上
+                    else img_y <= (grid_below << 5) - 32;
                 end else begin
                     on_ground <= 0;
                     img_y <= img_y + 5;
                 end
             end
 
-            // 跳躍觸發
             if (jstkData[1] && on_ground && !jumping) begin
                 jumping <= 1;
                 on_ground <= 0;
                 jump_start_y <= img_y;
             end
+
         end
     end
 
@@ -398,11 +425,38 @@ module top(
 
             end
     end
+
+    // 3. 顯示邏輯
+    always @(*) begin
+        if (!valid_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end else if (show_pixel_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = pixel; 
+            if (!is_char_sync) begin
+                if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
+                    if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaRed = 4'hF;
+                end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
+                    if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaGreen = 4'hF;
+                end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
+                    if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaBlue = 4'hF;
+                end
+            end
+            
+            
+        end else begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000; 
+        end
+    end
     
 
 endmodule
 
-//4098 1026 tile 64*64 (0-1023)
+//1026 tile 32*32 (0-1023)
 //5122 idle 128*32 4張(1024-5119)
 //11266 walk 192*32 6張(5120-11263)
+//12290 exit 32*32 (11264-12287)
+//13314 jail 32*32 (12288-13311)
 //角色32*32
