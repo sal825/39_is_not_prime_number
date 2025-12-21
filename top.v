@@ -294,23 +294,35 @@ module top(
 
     // Data read from PmodJSTK
     wire [39:0] jstkData;
-    // Signal carrying joystick X data
-    wire [9:0] XposData;
-    // Signal carrying joystick Y data
-    wire [9:0] YposData;
-    // Holds data to be sent to PmodJSTK
-    wire [9:0] sndData;
     
-    PmodJSTK PmodJSTK_Int(
-        .CLK(clk),
-        .RST(rst),
-        .sndRec(sndRec),
-        .DIN(sndData),
-        .MISO(MISO),
-        .SS(SS),
-        .SCLK(SCLK),
-        .MOSI(MOSI),
+    // Holds data to be sent to PmodJSTK
+    wire [9:0] sndData;//本來放Din
+    
+    // --- 第一顆搖桿控制 (JA1) ---
+    PmodJSTK P1_Controller (
+        .CLK(clk), 
+        .RST(rst), 
+        .sndRec(sndRec), 
+        .DIN(8'h80),
+        .MISO(MISO),     // 硬體引腳：JA1 Pin 3
+        .SS(SS),         // 硬體引腳：JA1 Pin 1
+        .SCLK(SCLK),     // 硬體引腳：JA1 Pin 4
+        .MOSI(MOSI),     // 硬體引腳：JA1 Pin 2
         .DOUT(jstkData)
+    );
+
+    wire [39:0] jstkData_1;
+    // --- 第二顆搖桿控制 (JA3) ---
+    PmodJSTK P2_Controller (
+        .CLK(clk), 
+        .RST(rst), 
+        .sndRec(sndRec), 
+        .DIN(8'h80),
+        .MISO(MISO_1),   // 硬體引腳：JA3 Pin 3 (需在 XDC 定義)
+        .SS(SS_1),       // 硬體引腳：JA3 Pin 1 (需在 XDC 定義)
+        .SCLK(SCLK_1),   // 硬體引腳：JA3 Pin 4 (需在 XDC 定義)
+        .MOSI(MOSI_1),   // 硬體引腳：JA3 Pin 2 (需在 XDC 定義)
+        .DOUT(jstkData_1)
     );
 
     
@@ -328,7 +340,11 @@ module top(
     //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
     wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
     wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
+    wire [9:0] jstk_X_1 = {jstkData_1[9:8], jstkData_1[23:16]};
+    wire [9:0] jstk_Y_1 = {jstkData_1[25:24], jstkData_1[39:32]};
     
+   
+
     localparam IMG_W = 32; // 圖片寬度
     localparam IMG_H = 32; // 圖片高度
     
@@ -337,8 +353,15 @@ module top(
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
 
+    wire joy_left_1   = (jstk_X_1 > 10'd400);
+    wire joy_right_1  = (jstk_X_1 < 10'd600);
+    wire joy_up_1     = (jstk_Y_1 < 10'd400);
+    wire joy_down_1   = (jstk_Y_1 > 10'd600);
+
+
+
     assign is_moving = joy_left || joy_right;
-    assign is_moving_1 = (key_down && (last_change == KEY_CODES_A || last_change == KEY_CODES_D));
+    assign is_moving_1 = joy_left_1 || joy_right_1;
     
     reg jumping;
     reg on_ground;
@@ -494,9 +517,9 @@ module top(
                 img_x <= img_x + 5; face_left <= 0;
             end
 
-            if (key_down && last_change == KEY_CODES_A && !wall_L_1) begin 
+            if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
                 img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-            end else if (key_down && last_change == KEY_CODES_D && !wall_R_1) begin 
+            end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
                 img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
             end
 
@@ -542,7 +565,7 @@ module top(
                 jump_start_y <= img_y;
             end
 
-            if (key_down && last_change == KEY_CODES_SPACE && on_ground_1 && !jumping_1) begin 
+            if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
                 jumping_1 <= 1;
                 on_ground_1 <= 0;
                 jump_start_y_1 <= img_y_1;
@@ -559,7 +582,7 @@ module top(
                     LED <= 3'b000;
             end
             else begin
-                   LED <= {13'b0, jstkData[2], jstkData[1], jstkData[0]};//0是按搖桿，1是搖桿底下那顆按鈕
+                   LED <= {10'b0, jstkData_1[2:0],jstkData[2:0]};//0是按搖桿，1是搖桿底下那顆按鈕
 
             end
     end
