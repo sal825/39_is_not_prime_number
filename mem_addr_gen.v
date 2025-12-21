@@ -15,6 +15,7 @@ module mem_addr_gen(
     input face_left,        // 角色是否面向左邊 (決定是否鏡像翻轉)
     input face_left_1,
     input [4:0] gate_open,      // 新增：門是否開啟 (來自 Top)
+    input [3:0] state,
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
     output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
     output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
@@ -48,7 +49,7 @@ module mem_addr_gen(
     wire is_char_1 = (h_cnt >= x_s_1 + 3 && h_cnt < x_s_1 + IMG_W - 3) && (v_cnt >= y_s_1 + 5 && v_cnt < y_s_1 + IMG_H);
     
     // 將螢幕座標轉為網格座標 (>> 5 等於除以 32)，用來查找 20x15 的地圖陣列
-    wire [4:0] gx = h_cnt >> 5; 
+    wire [4:0] gx = h_cnt >> 5;
     wire [3:0] gy = v_cnt >> 5;
     
     // --- 3. 地圖定義 (Map Array) ---

@@ -27,7 +27,21 @@ module top(
     output reg [3:0] data_out
     );
 
-    reg [3:0] state;
+    reg [3:0] state, next_state;
+
+    localparam START_SCENE = 4'h0;
+    localparam PLAY_SCENE = 4'h1;
+    localparam LOSE_SCENE = 4'h2;
+    localparam WIN_SCENE = 4'h3;
+
+    always @(posedge clk, posedge rst) begin
+        if (rst) begin 
+            state <= START_SCENE;
+        end else begin 
+            state <= next_state;
+        end
+    end
+
     
     //MUSIC==========================================================================================
     // Internal Signal
@@ -197,7 +211,8 @@ module top(
         .out_tile_id(current_id_sync),
         .gate_open(gate_open),
         .out_is_char_sync(is_char_sync),
-        .out_is_char_sync_1(is_char_sync_1)
+        .out_is_char_sync_1(is_char_sync_1),
+        .state(state)
     );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
@@ -364,6 +379,7 @@ module top(
     wire [9:0] char_R = img_x + 31;
     wire [9:0] char_T = img_y;
     wire [9:0] char_B = img_y + 31;
+
 
     wire [9:0] char_L_1 = img_x_1;
     wire [9:0] char_R_1 = img_x_1 + 31;
@@ -548,9 +564,9 @@ module top(
             end
     end
 
-    reg [1:0] spike_sec;
+    reg [3:0] spike_sec;
     reg [31:0] cnt_spike;
-    wire spike_on = (spike_sec > 2'b01);
+    wire spike_on = (spike_sec > 3'b100);
 
     always @(posedge clk, posedge rst) begin
         if (rst) begin 
@@ -593,7 +609,40 @@ module top(
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end
     end
+
+    wire step_on_spike = spike_on && (map[char_B >> 5][(19 - (char_L >> 5))*4 +: 4] == T_SPIKE || map[char_B >> 5][(19 - (char_R >> 5))*4 +: 4] == T_SPIKE ||
+                         map[char_B_1 >> 5][(19 - (char_L_1 >> 5))*4 +: 4] == T_SPIKE || map[char_B_1 >> 5][(19 - (char_R_1 >> 5))*4 +: 4] == T_SPIKE);
     
+    reg [2:0] lose_sec;
+    reg [31:0] cnt_lose;
+    always @(posedge clk, posedge rst) begin
+        if (rst) begin 
+            lose_sec <= 0;
+            cnt_lose <= 0;
+        end else begin 
+            if (state == LOSE_SCENE) begin 
+                cnt_lose <= cnt_lose + 1;
+                if (cnt_lose >= 10000000000) begin 
+                    cnt_lose <= 0;
+                    lose_sec <= lose_sec + 1;
+                end
+            end else begin 
+                lose_sec <= 0;
+                cnt_lose <= 0;
+            end
+        end
+    end
+    
+    always @(*) begin
+        next_state = state; 
+        if (state == START_SCENE) begin 
+            if (key_down && last_change == KEY_CODES_1) next_state = PLAY_SCENE;
+        end else if (state == PLAY_SCENE) begin 
+            if (step_on_spike) next_state = LOSE_SCENE;
+        end else if (state == LOSE_SCENE) begin 
+            if (lose_sec >= 5) next_state = START_SCENE;
+        end
+    end
 
 endmodule
 
@@ -605,4 +654,5 @@ endmodule
 //17410 第二隻idle 128*32 (13312-17407)
 //23554 第二隻walk 192*32 (17408-23551)
 //24578 spike 32*32 (23552-24575)
+//43778 start 160*120 (24576-43775)
 //角色32*32
