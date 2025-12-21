@@ -264,9 +264,13 @@ module top(
     localparam KEY_CODES_6 = 9'b0_0011_0110;
     localparam KEY_CODES_7 = 9'b0_0011_1101;
     localparam KEY_CODES_8 = 9'b0_0011_1110;
+    localparam KEY_CODES_W = 9'h1D;
     localparam KEY_CODES_A = 9'h1C;
+    localparam KEY_CODES_S = 9'h1B;
     localparam KEY_CODES_D = 9'h23;
     localparam KEY_CODES_SPACE = 9'h29;
+    localparam KEY_CODES_ENTER = 9'h5A;
+    localparam KEY_CODES_Q= 9'h15;
 
     wire [511:0] key_down;
     wire [8:0] last_change;
@@ -530,6 +534,23 @@ module top(
 
     reg [9:0] jump_start_y;
     reg [9:0] jump_start_y_1;
+    // --- 瞬移技能邏輯 ---
+    localparam TELEPORT_DIST = 10'd64;
+    localparam TELEPORT_CD   = 11'd1800;    // 約 3 秒 (5Hz 時脈下)
+
+    reg space_prev;
+    reg [23:0] teleport_cd;
+
+    reg skill_mode;
+    reg [4:0] cursor_x; // 0-19 格
+    reg [3:0] cursor_y; // 0-14 格
+    reg q_prev, enter_prev;
+
+    wire [9:0] abs_target_x = cursor_x << 5;
+    wire [9:0] abs_target_y = cursor_y << 5;
+    // 地圖碰撞檢查
+    assign target_tile_id = map[cursor_y][(19 - cursor_x)*4 +: 4];
+    reg teleporting;
     // --- 跳躍與移動邏輯 (保持不變) ---
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
@@ -543,6 +564,16 @@ module top(
             on_ground_1 <= 1;
             face_left <= 0;
             face_left_1 <= 0;
+
+            space_prev  <= 1'b0;
+            teleport_cd <= 24'd0;
+
+            skill_mode <= 0;
+            cursor_x <= 0;
+            cursor_y <= 0;
+            teleporting <= 1'b0;
+            q_prev <= 1'b0;
+            enter_prev <= 1'b0;
         end else begin
             if (state == START_SCENE || (state == PLAY_SCENE && next_state == BOSS_SCENE)) begin 
                 img_x <= 10'd32;
@@ -555,37 +586,109 @@ module top(
                 on_ground_1 <= 1;
                 face_left <= 0;
                 face_left_1 <= 0;
+                space_prev  <= 1'b0;
+                teleport_cd <= 24'd0;
+
+                skill_mode <= 0;
+                cursor_x <= 0;
+                cursor_y <= 0;
+                teleporting <= 1'b0;
+                q_prev <= 1'b0;
+                enter_prev <= 1'b0;
             end else if (state == PLAY_SCENE || state == BOSS_SCENE) begin
 
-                if (joy_left && img_x >= 5 && !wall_L) begin
-                    img_x <= img_x - 5; face_left <= 1;
-                end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                    img_x <= img_x + 5; face_left <= 0;
+                // ===============================
+                // 角色0號的選格瞬移
+                // ===============================
+                // 按 Q 進入/退出技能模式
+                if (key_down[KEY_CODES_Q] && !q_prev) begin
+                    skill_mode <= ~skill_mode;
+                    cursor_x <= 0;
+                    cursor_y <= img_y >> 5;
                 end
+                q_prev <= key_down[KEY_CODES_Q];
 
-                if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
-                    img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-                end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
-                    img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
+                if (skill_mode) begin
+                    // WASD 選格 (建議加上邊緣偵測防止跑出螢幕)
+                    if (key_down[KEY_CODES_A] && cursor_x >= 0)  cursor_x <= cursor_x - 1;
+                    if (key_down[KEY_CODES_D] && cursor_x <= 20) cursor_x <= cursor_x + 1;
+                    if (key_down[KEY_CODES_W] && cursor_y >= (img_y>>5)-3)  cursor_y <= cursor_y - 1;
+                    if (key_down[KEY_CODES_S] && cursor_y <= (img_y>>5)+3) cursor_y <= cursor_y + 1;
+
+                    // Enter 確定瞬移
+                    if (key_down[KEY_CODES_ENTER] && !enter_prev) begin
+                        // 判定條件：目標點必須在螢幕內，且地圖上該格必須是空的 (T_EMPTY 假設為 4'd0)
+                        if (target_tile_id == 4'h0 && on_ground) begin // 只有空地能傳
+                            img_x <= cursor_x << 5;
+                            img_y <= cursor_y << 5;
+
+                            jumping     <= 0;
+                            on_ground   <= 1;
+                            teleporting <= 1'b1;   
+
+                            skill_mode <= 0;
+                        end
+                        // 如果想增加提示，可以在這裡加一個 else 觸發音效，代表目標是牆壁不能傳
+                    end
+                    
                 end
+                enter_prev <= key_down[KEY_CODES_ENTER];
+                // ===============================
+                // SPACE 邊緣偵測 + 冷卻
+                // ===============================
+                space_prev <= key_down[KEY_CODES_SPACE];
+                if (teleport_cd > 0) begin
+                    teleport_cd <= teleport_cd - 1;
+                end
+                // ===============================
+                // 【瞬移技能】角色 1（最高優先）
+                // ===============================
+                if (key_down[KEY_CODES_SPACE] && !space_prev && teleport_cd == 0) begin
+                    teleport_cd <= TELEPORT_CD;
 
-                if (jumping) begin
-                    if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                        jumping <= 0;
+                    if (joy_left_1 || face_left_1) begin
+                        // 向左瞬移
+                        if (img_x_1 >= TELEPORT_DIST && !wall_L_1)
+                            img_x_1 <= img_x_1 - TELEPORT_DIST;
                     end else begin
-                        img_y <= img_y - 5;
+                        // 向右瞬移
+                        if (img_x_1 + TELEPORT_DIST <= 640 - 32 && !wall_R_1)
+                            img_x_1 <= img_x_1 + TELEPORT_DIST;
+                    end
+                end else begin
+
+                    if (joy_left && img_x >= 5 && !wall_L) begin
+                        img_x <= img_x - 5; face_left <= 1;
+                    end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
+                        img_x <= img_x + 5; face_left <= 0;
+                    end
+
+                    if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
+                        img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
+                    end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
+                        img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
                     end
                 end
-                else begin
-                    if (tile_below || img_y >= 416) begin
-                        on_ground <= 1;
-                        if (img_y >= 416) img_y <= 416;
-                        else img_y <= (grid_below << 5) - 32;
-                    end else begin
-                        on_ground <= 0;
-                        img_y <= img_y + 5;
+                if (!skill_mode && !teleporting) begin
+                    if (jumping) begin
+                        if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
+                            jumping <= 0;
+                        end else begin
+                            img_y <= img_y - 5;
+                        end
+                    end
+                    else begin
+                        if (tile_below || img_y >= 416) begin
+                            on_ground <= 1;
+                            if (img_y >= 416) img_y <= 416;
+                            else img_y <= (grid_below << 5) - 32;
+                        end else begin
+                            on_ground <= 0;
+                            img_y <= img_y + 5;
+                        end
                     end
                 end
+                if (teleporting) teleporting <= 1'b0;
 
                 if (jumping_1) begin
                     if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
@@ -654,7 +757,14 @@ module top(
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end
+        else if (skill_mode && 
+                ((h_cnt - 2) >= abs_target_x) && ((h_cnt - 2) < (abs_target_x + 32)) &&
+                (v_cnt >= abs_target_y) && (v_cnt < (abs_target_y + 32))) 
+        begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; // 純白色
+        end
         else if (state == PLAY_SCENE) begin
+            
             if (show_pixel_sync) begin
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
                 if (!is_char_sync && !is_char_sync_1) begin
