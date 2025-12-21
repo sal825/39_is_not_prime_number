@@ -353,8 +353,8 @@ module top(
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
 
-    wire joy_left_1   = (jstk_X_1 > 10'd400);
-    wire joy_right_1  = (jstk_X_1 < 10'd600);
+    wire joy_left_1   = (jstk_X_1 > 10'd600);
+    wire joy_right_1  = (jstk_X_1 < 10'd450);
     wire joy_up_1     = (jstk_Y_1 < 10'd400);
     wire joy_down_1   = (jstk_Y_1 > 10'd600);
 
