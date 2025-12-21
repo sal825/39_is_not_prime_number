@@ -34,7 +34,8 @@ module top(
     localparam PLAY_SCENE = 4'h1;
     localparam LOSE_SCENE = 4'h2;
     localparam WIN_SCENE = 4'h3;
-
+    localparam BOSS_SCENE = 4'h4;
+    wire clk_25MHz;
     always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin 
             state <= START_SCENE;
@@ -113,7 +114,7 @@ module top(
     //VGA==========================================================================================================
 
     wire [11:0] data;
-    wire clk_25MHz;
+    
     clock_divider #(.n(2)) clock_25MHZ(.clk(clk), .clk_div(clk_25MHz));
     wire [16:0] pixel_addr;
     wire [11:0] pixel;
@@ -276,7 +277,7 @@ module top(
         .PS2_DATA(PS2_DATA),
         .PS2_CLK(PS2_CLK),
         .rst(rst),
-        .clk(clk_25MHz)
+        .clk(clk_25MHz)//不確定
     );
 
     //7-segment===============================================================================================================
@@ -403,7 +404,7 @@ module top(
     assign map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
-    assign map[12] = {20{T_EMPTY}};
+    assign map[12] = {{19{T_EMPTY}}, T_EXIT};
     assign map[13] = {{3{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
     assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
@@ -470,6 +471,8 @@ module top(
                 || (tile_id_R_mid_1 == T_GATE_1 && !gate_open[4]) || (tile_id_R_top_1 == T_GATE_1 && !gate_open[4])
                 || (tile_id_R_mid_1 == T_GATE_2 && !gate_open[3]) || (tile_id_R_top_1 == T_GATE_2 && !gate_open[3])
                 || (tile_id_R_mid_1 == T_GATE_3 && !gate_open[2]) || (tile_id_R_top_1 == T_GATE_3 && !gate_open[2]);
+
+    wire win_now = (tile_id_R_mid == T_EXIT && tile_id_R_mid_1 == T_EXIT);
 
 
     // 左側偵測
@@ -669,25 +672,25 @@ module top(
         end
     end
         
-    reg [2:0] lose_sec;
-    reg [31:0] cnt_lose;
-    always @(posedge clk, posedge rst) begin
-        if (rst) begin
-            lose_sec <= 0;
-            cnt_lose <= 0;
-        end else begin
-            if (state == LOSE_SCENE) begin 
-                cnt_lose <= cnt_lose + 1;
-                if (cnt_lose >= 100000000) begin 
-                    cnt_lose <= 0;
-                    lose_sec <= lose_sec + 1;
-                end
-            end else begin 
-                lose_sec <= 0;
-                cnt_lose <= 0;
-            end
-        end
-    end
+    // reg [2:0] lose_sec;
+    // reg [31:0] cnt_lose;
+    // always @(posedge clk, posedge rst) begin
+    //     if (rst) begin
+    //         lose_sec <= 0;
+    //         cnt_lose <= 0;
+    //     end else begin
+    //         if (state == LOSE_SCENE) begin 
+    //             cnt_lose <= cnt_lose + 1;
+    //             if (cnt_lose >= 100000000) begin 
+    //                 cnt_lose <= 0;
+    //                 lose_sec <= lose_sec + 1;
+    //             end
+    //         end else begin 
+    //             lose_sec <= 0;
+    //             cnt_lose <= 0;
+    //         end
+    //     end
+    // end
     
     always @(*) begin
         next_state = state; 
@@ -695,8 +698,11 @@ module top(
             if (btnR_op) next_state = PLAY_SCENE;
         end else if (state == PLAY_SCENE) begin
             if (step_on_spike) next_state = LOSE_SCENE;
+            if (win_now) next_state = WIN_SCENE;
         end else if (state == LOSE_SCENE) begin
-            if (lose_sec >= 5) next_state = START_SCENE;
+            if (btnR_op) next_state = START_SCENE;
+        end else if (state == WIN_SCENE) begin 
+            if (btnR_op) next_state = START_SCENE;
         end
     end
 
@@ -711,6 +717,7 @@ endmodule
 //23554 第二隻walk 192*32 (17408-23551)
 //24578 spike 32*32 (23552-24575)
 //43778 start 160*120 (24576-43775)
-//62978 lose 160*120 (43776-62975)
-//67778 win 80*60 (62976-67775)
+//48578 lose 80*60 (43776-48575)
+//53378 win 80*60 (48576-53375)
+//64178 boss 120*90 (53376-64175)
 //角色32*32

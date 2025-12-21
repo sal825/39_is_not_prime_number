@@ -63,7 +63,7 @@ module mem_addr_gen(
     wire [79:0] map [0:14];
 
     
-    localparam T_EMPTY = 4'h0;
+    localparam T_EMPTY = 4'h0; //不能改這個數字!!
     localparam T_SPIKE = 4'h1;
     localparam T_GATE_1  = 4'h2;
     localparam T_GATE_2  = 4'h3;
@@ -85,7 +85,7 @@ module mem_addr_gen(
     assign map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
-    assign map[12] = {20{T_EMPTY}};
+    assign map[12] = {{19{T_EMPTY}}, T_EXIT};
     assign map[13] = {{3{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
     assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
@@ -122,13 +122,13 @@ module mem_addr_gen(
             lx = h_cnt >> 2;
             ly = v_cnt >> 2;
         end else if (state == LOSE_SCENE) begin 
-            coeff = 160;
+            coeff = 80;
             b_off = 43776;
-            lx = h_cnt >> 2;
-            ly = v_cnt >> 2;
+            lx = h_cnt >> 3;
+            ly = v_cnt >> 3;
         end else if (state == WIN_SCENE) begin 
             coeff = 80;
-            b_off = 62976;
+            b_off = 48576;
             lx = h_cnt >> 3;
             ly = v_cnt >> 3;
         end else if (state == PLAY_SCENE) begin
