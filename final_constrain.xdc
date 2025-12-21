@@ -182,15 +182,15 @@ set_property PACKAGE_PIN B16 [get_ports {data_out[3]}]
 # Sch name = JC1
 set_property PACKAGE_PIN K17 [get_ports {SS_1}]
    set_property IOSTANDARD LVCMOS33 [get_ports {SS_1}]
-# # Sch name = JC2
-# set_property PACKAGE_PIN M18 [get_ports {MOSI_1}]
-#    set_property IOSTANDARD LVCMOS33 [get_ports {MOSI_1}]
-# # Sch name = JC3
-# set_property PACKAGE_PIN N17 [get_ports {MISO_1}]
-#    set_property IOSTANDARD LVCMOS33 [get_ports {MISO_1}]
-# # Sch name = JC4
-# set_property PACKAGE_PIN P18 [get_ports {SCLK_1}]
-#    set_property IOSTANDARD LVCMOS33 [get_ports {SCLK_1}]
+# Sch name = JC2
+set_property PACKAGE_PIN M18 [get_ports {MOSI_1}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {MOSI_1}]
+# Sch name = JC3
+set_property PACKAGE_PIN N17 [get_ports {MISO_1}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {MISO_1}]
+# Sch name = JC4
+set_property PACKAGE_PIN P18 [get_ports {SCLK_1}]
+   set_property IOSTANDARD LVCMOS33 [get_ports {SCLK_1}]
 ## Sch name = JC7
 # set_property PACKAGE_PIN L17 [get_ports {JC[4]}]
 #    set_property IOSTANDARD LVCMOS33 [get_ports {JC[4]}]

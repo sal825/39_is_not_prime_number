@@ -18,7 +18,8 @@ module mem_addr_gen(
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
     output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
     output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
-    output reg out_is_char_sync // 新增：同步後的「正在畫角色」訊號
+    output reg out_is_char_sync, // 新增：同步後的「正在畫角色」訊號
+    output reg out_is_char_sync_1
     );
 
     // 角色圖塊的大小固定為 32x32 像素
@@ -32,8 +33,8 @@ module mem_addr_gen(
     reg [9:0] x_s_1, y_s_1;
     always @(posedge vsync or posedge rst) begin
         if (rst) begin 
-            {x_s, y_s} <= {10'd32, 10'd416}; 
-            {x_s_1, y_s_1} <= {10'd608, 10'd416}; 
+            {x_s, y_s} <= {10'd32, 10'd320}; 
+            {x_s_1, y_s_1} <= {10'd32, 10'd416}; 
         end
         else begin
             {x_s, y_s} <= {img_x, img_y};
@@ -54,16 +55,17 @@ module mem_addr_gen(
     // 每個 bit 代表一個 32x32 的區塊。1: 障礙物/地板, 0: 空地
     wire [79:0] map [0:14];
 
+    
     localparam T_EMPTY = 4'h0;
-    localparam T_GATE_1  = 4'h1;
-    localparam T_GATE_2  = 4'h2;
-    localparam T_GATE_3  = 4'h3;
-    localparam T_PLATE_1 = 4'h4;
-    localparam T_PLATE_2 = 4'h5;
-    localparam T_PLATE_3 = 4'h6;
-    localparam T_EXIT  = 4'h7;
-    localparam T_WALL  = 4'h8;
-
+    localparam T_SPIKE = 4'h1;
+    localparam T_GATE_1  = 4'h2;
+    localparam T_GATE_2  = 4'h3;
+    localparam T_GATE_3  = 4'h4;
+    localparam T_PLATE_1 = 4'h5;
+    localparam T_PLATE_2 = 4'h6;
+    localparam T_PLATE_3 = 4'h7;
+    localparam T_EXIT  = 4'h8;
+    localparam T_WALL  = 4'h9;
     assign map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
     assign map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
     assign map[2]  = {20{T_EMPTY}};
@@ -73,17 +75,18 @@ module mem_addr_gen(
     assign map[6]  = {20{T_EMPTY}};
     assign map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
     assign map[8]  = {20{T_EMPTY}};
-    assign map[9]  = {{10{T_WALL}}, {10{T_EMPTY}}}; 
-    assign map[10] = {20{T_EMPTY}};
-    assign map[11] = {{10{T_PLATE_1}}, {5{T_EXIT}}, {3{T_PLATE_1}}, {2{T_GATE_1}}};
+    assign map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+    assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+    assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
     assign map[12] = {20{T_EMPTY}};
-    assign map[13] = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}};
-    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_PLATE_3}}};
+    assign map[13] = {{2{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {10{T_EMPTY}}, {5{T_PLATE_3}}};
+    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
 
     wire [3:0] current_tile_id = (h_cnt < 640 && v_cnt < 480) ? map[gy][(19-gx)*4 +: 4] : T_EMPTY;//往上取4個bit
     // 判斷當前掃描點是否落在地圖中的「1」區域
     wire is_tile = (current_tile_id == T_WALL) || 
+                   (current_tile_id == T_SPIKE) || 
                    (current_tile_id == T_EXIT) || 
                    (current_tile_id == T_PLATE_1) ||
                    (current_tile_id == T_PLATE_2) ||
@@ -93,7 +96,7 @@ module mem_addr_gen(
                    (current_tile_id == T_GATE_3 && !gate_open[2]);
     
     // 最終顯示開關：只要是角色或是地圖塊就要亮起顏色
-    wire comb_show = is_char || is_char_1 || is_tile;
+    //wire comb_show = is_char || is_char_1 || is_tile;
 
     // --- 4. 地址計算 (組合邏輯) ---
     reg [7:0] coeff;     // 當前讀取圖片的總寬度 (換行計算用)
@@ -121,6 +124,7 @@ module mem_addr_gen(
                 T_GATE_2:  b_off = 12288;
                 T_PLATE_3: b_off = 0;
                 T_GATE_3:  b_off = 12288;
+                T_SPIKE: b_off = 23552;
                 default: b_off = 0;
             endcase
         end 
@@ -150,12 +154,12 @@ module mem_addr_gen(
                 // 走路動畫 (Walk): 寬度 192, 位於位址 8192
                 // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
                 lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
-                b_off = 5120;
+                b_off = 17408;
                 coeff = 192;
             end else begin
                 // 待機動畫 (Idle): 寬度 128, 位於位址 4096
                 lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
-                b_off = 1024;
+                b_off = 13312;
                 coeff = 128;
             end
         end 
@@ -170,13 +174,14 @@ module mem_addr_gen(
     // 因此控制訊號 `out_show_pixel` 必須延遲對應的拍數才能跟顏色對齊。
     reg [3:0] id_pipe_1, id_pipe_2, id_pipe_3; // ID 的延遲鏈
     reg [1:0] char_p;
+    reg [1:0] char_p_1;
     reg [3:0] delay_pipe; 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             pixel_addr <= 0;
             delay_pipe <= 4'b0000;
             {id_pipe_1, id_pipe_2, id_pipe_3, out_tile_id} <= 0;
-            {char_p, out_is_char_sync} <= 0;
+            {char_p, char_p_1, out_is_char_sync, out_is_char_sync_1} <= 0;
         end else begin
             // 計算 1D 地址公式：起始位址 + (列偏移 * 圖片寬) + 行偏移
             pixel_addr <= b_off + (ly * coeff) + lx;
@@ -191,7 +196,9 @@ module mem_addr_gen(
 
             // 同步「是否正在畫角色」訊號
             char_p <= {char_p[0], is_char};
+            char_p_1 <= {char_p_1[0], is_char_1};
             out_is_char_sync <= char_p[1];
+            out_is_char_sync_1 <= char_p_1[1];
         end
     end
 

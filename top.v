@@ -20,12 +20,10 @@ module top(
     output wire SS,
     output wire MOSI,
     output wire SCLK,
-    // 第二顆搖桿
-    //input wire MISO_1,
+    input wire MISO_1,
     output wire SS_1,
-    // output wire MOSI_1,
-    // output wire SCLK_1,
-
+    output wire MOSI_1,
+    output wire SCLK_1,
     output reg [3:0] data_out
     );
 
@@ -175,7 +173,7 @@ module top(
     wire show_pixel_sync;
     wire [3:0] current_id_sync;
     wire [4:0] gate_open;
-    wire is_char_sync;
+    wire is_char_sync, is_char_sync_1;
     
     // --- 實例化地址生成器 (記得接上 is_moving) ---
     mem_addr_gen mem_addr_gen_inst(
@@ -198,7 +196,8 @@ module top(
         .face_left_1(face_left_1),
         .out_tile_id(current_id_sync),
         .gate_open(gate_open),
-        .out_is_char_sync(is_char_sync)
+        .out_is_char_sync(is_char_sync),
+        .out_is_char_sync_1(is_char_sync_1)
     );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
@@ -286,49 +285,6 @@ module top(
     wire [9:0] YposData;
     // Holds data to be sent to PmodJSTK
     wire [9:0] sndData;
-
-    // //第二顆搖桿
-    // wire sndRec_1;
-    // wire [39:0] jstkData_1;
-    // wire [9:0] sndData_1;
-
-    // // 共用 SPI 主控線
-    // assign MOSI_1 = MOSI;
-
-    // assign SCLK_1 = SCLK;
-
-    // // MISO 要合併（一次只有一顆會驅動）
-    // assign MISO_1 = MISO;
-    wire SS_sel;
-    reg sel; // 0: JSTK1, 1: JSTK2
-
-    always @(posedge sndRec or posedge rst) begin
-        if (rst)
-            sel <= 0;
-        else
-            sel <= ~sel;
-    end
-    
-
-    assign SS_sel = (sel == 0) ? 1'b0 : 1'b1;
-
-    assign SS   = (sel == 0) ? SS_sel : 1'b1;  // JSTK1
-    assign SS_1 = (sel == 1) ? SS_sel : 1'b1;  // JSTK2
-
-    reg  [39:0] jstkData_0;    // JSTK1
-    reg  [39:0] jstkData_1;    // JSTK2
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            jstkData_0 <= 40'd0;
-            jstkData_1 <= 40'd0;
-        end else if (sndRec) begin
-            if (sel == 0)
-                jstkData_0 <= jstkData;  // 剛剛選的是 JSTK1
-            else
-                jstkData_1 <= jstkData;  // 剛剛選的是 JSTK2
-        end
-    end
-
     
     PmodJSTK PmodJSTK_Int(
         .CLK(clk),
@@ -336,22 +292,11 @@ module top(
         .sndRec(sndRec),
         .DIN(sndData),
         .MISO(MISO),
-        .SS(SS_sel),
+        .SS(SS),
         .SCLK(SCLK),
         .MOSI(MOSI),
         .DOUT(jstkData)
     );
-    // PmodJSTK PmodJSTK_2(
-    //     .CLK(clk),
-    //     .RST(rst),
-    //     .sndRec(sndRec),
-    //     .DIN(sndData_1),
-    //     .MISO(MISO_1),   
-    //     .SS(SS_1),      
-    //     .SCLK(SCLK_1),   
-    //     .MOSI(MOSI_1),   
-    //     .DOUT(jstkData_1)
-    // );
 
     
     ClkDiv_5Hz genSndRec(
@@ -359,42 +304,23 @@ module top(
             .RST(rst),
             .CLKOUT(sndRec)
     );
-    
 
-
-    
+    // // Collect joystick state for position state
+    // assign YposData = {jstkData[25:24], jstkData[39:32]};
+    // assign XposData = {jstkData[9:8], jstkData[23:16]};
 
     // Use state of switch 0 to select output of X position or Y position data to SSD
     //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
-<<<<<<< HEAD
-    // wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
-    // wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
-    wire [9:0] jstk_X = {jstkData_0[9:8],  jstkData_0[23:16]};
-    wire [9:0] jstk_Y = {jstkData_0[25:24],jstkData_0[39:32]};
-
-    wire [9:0] jstk1_X = {jstkData_1[9:8],  jstkData_1[23:16]};
-    wire [9:0] jstk1_Y = {jstkData_1[25:24],jstkData_1[39:32]};
-
-
-
-    localparam IMG_W = 32;//160; // 圖片寬度
-    localparam IMG_H = 32;//120; // 圖片高度
-=======
     wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
     wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
     
     localparam IMG_W = 32; // 圖片寬度
     localparam IMG_H = 32; // 圖片高度
->>>>>>> 143308bd0d31178483c6f611df3671fb2a84b699
     
     wire joy_left   = (jstk_X < 10'd400);
     wire joy_right  = (jstk_X > 10'd600);
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
-
-    wire joy2_left  = (jstk1_X < 10'd400);
-    wire joy2_right = (jstk1_X > 10'd600);
-
 
     assign is_moving = joy_left || joy_right;
     assign is_moving_1 = (key_down && (last_change == KEY_CODES_A || last_change == KEY_CODES_D));
@@ -407,15 +333,16 @@ module top(
     // --- 地圖數據 (20x15) ---
     wire [79:0] map [0:14];
 
-    localparam T_EMPTY = 4'h0;
-    localparam T_GATE_1  = 4'h1;
-    localparam T_GATE_2  = 4'h2;
-    localparam T_GATE_3  = 4'h3;
-    localparam T_PLATE_1 = 4'h4;
-    localparam T_PLATE_2 = 4'h5;
-    localparam T_PLATE_3 = 4'h6;
-    localparam T_EXIT  = 4'h7;
-    localparam T_WALL  = 4'h8;
+    localparam T_EMPTY = 4'h0; //不能改這個數字!!
+    localparam T_SPIKE = 4'h1;
+    localparam T_GATE_1  = 4'h2;
+    localparam T_GATE_2  = 4'h3;
+    localparam T_GATE_3  = 4'h4;
+    localparam T_PLATE_1 = 4'h5;
+    localparam T_PLATE_2 = 4'h6;
+    localparam T_PLATE_3 = 4'h7;
+    localparam T_EXIT  = 4'h8;
+    localparam T_WALL  = 4'h9;
     assign map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
     assign map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
     assign map[2]  = {20{T_EMPTY}};
@@ -425,12 +352,12 @@ module top(
     assign map[6]  = {20{T_EMPTY}};
     assign map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
     assign map[8]  = {20{T_EMPTY}};
-    assign map[9]  = {{10{T_WALL}}, {10{T_EMPTY}}}; 
-    assign map[10] = {20{T_EMPTY}};
-    assign map[11] = {{10{T_PLATE_1}}, {5{T_EXIT}}, {3{T_PLATE_1}}, {2{T_GATE_1}}};
+    assign map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+    assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+    assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
     assign map[12] = {20{T_EMPTY}};
-    assign map[13] = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}};
-    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_PLATE_3}}};
+    assign map[13] = {{2{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {10{T_EMPTY}}, {5{T_PLATE_3}}};
+    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
     // --- 多點碰撞偵測點 ---
     wire [9:0] char_L = img_x;
@@ -463,9 +390,12 @@ module top(
                      || (tile_id_below_L == T_GATE_1 && !gate_open[4]) || (tile_id_below_R == T_GATE_3 && !gate_open[4])
                      || (tile_id_below_L == T_GATE_2 && !gate_open[3]) || (tile_id_below_R == T_GATE_2 && !gate_open[3])
                      || (tile_id_below_L == T_GATE_3 && !gate_open[2]) || (tile_id_below_R == T_GATE_1 && !gate_open[2]);
-    wire tile_below_1 = (tile_id_below_L_1 >= T_PLATE_1) || (tile_id_below_R_1 >= T_PLATE_1);
+    wire tile_below_1 = (tile_id_below_L_1 >= T_PLATE_1) || (tile_id_below_R_1 >= T_PLATE_1)
+                     || (tile_id_below_L_1 == T_GATE_1 && !gate_open[4]) || (tile_id_below_R_1 == T_GATE_3 && !gate_open[4])
+                     || (tile_id_below_L_1 == T_GATE_2 && !gate_open[3]) || (tile_id_below_R_1 == T_GATE_2 && !gate_open[3])
+                     || (tile_id_below_L_1 == T_GATE_3 && !gate_open[2]) || (tile_id_below_R_1 == T_GATE_1 && !gate_open[2]);
 
-    assign gate_open = {(tile_id_below_L_1 == T_PLATE_1), (tile_id_below_L_1 == T_PLATE_2), (tile_id_below_L_1 == T_PLATE_3), 2'b0};
+    assign gate_open = {(tile_id_below_L == T_PLATE_1 || tile_id_below_L_1 == T_PLATE_1), (tile_id_below_L == T_PLATE_2 || tile_id_below_L_1 == T_PLATE_2), (tile_id_below_L == T_PLATE_3 || tile_id_below_L_1 == T_PLATE_3), 2'b0};
 
     // 2. 水平偵測
     wire [4:0] grid_next_R = (char_R + 5) >> 5;
@@ -488,7 +418,10 @@ module top(
 
     wire [3:0] tile_id_R_mid_1 = (grid_next_R_1 < 20) ? map[grid_mid_y_1][(19 - grid_next_R_1)*4 +: 4] : T_EMPTY;//不會有門
     wire [3:0] tile_id_R_top_1 = (grid_next_R_1 < 20) ? map[grid_top_y_1][(19 - grid_next_R_1)*4 +: 4] : T_EMPTY;
-    wire wall_R_1 = (tile_id_R_mid_1 >= T_PLATE_1) || (tile_id_R_top_1 >= T_PLATE_1);
+    wire wall_R_1 = (tile_id_R_mid_1 >= T_PLATE_1) || (tile_id_R_top_1 >= T_PLATE_1)
+                || (tile_id_R_mid_1 == T_GATE_1 && !gate_open[4]) || (tile_id_R_top_1 == T_GATE_1 && !gate_open[4])
+                || (tile_id_R_mid_1 == T_GATE_2 && !gate_open[3]) || (tile_id_R_top_1 == T_GATE_2 && !gate_open[3])
+                || (tile_id_R_mid_1 == T_GATE_3 && !gate_open[2]) || (tile_id_R_top_1 == T_GATE_3 && !gate_open[2]);
 
 
     // 左側偵測
@@ -501,7 +434,10 @@ module top(
 
     wire [3:0] tile_id_L_mid_1 = (char_L_1 >= 5) ? map[grid_mid_y_1][(19 - grid_next_L_1)*4 +: 4] : T_WALL;
     wire [3:0] tile_id_L_top_1 = (char_L_1 >= 5) ? map[grid_top_y_1][(19 - grid_next_L_1)*4 +: 4] : T_WALL;
-    wire wall_L_1 = (tile_id_L_mid_1 >= T_PLATE_1) || (tile_id_L_top_1 >= T_PLATE_1);
+    wire wall_L_1 = (tile_id_L_mid_1 >= T_PLATE_1) || (tile_id_L_top_1 >= T_PLATE_1)
+                || (tile_id_L_mid_1 == T_GATE_1 && !gate_open[4]) || (tile_id_L_top_1 == T_GATE_1 && !gate_open[4])
+                || (tile_id_L_mid_1 == T_GATE_2 && !gate_open[3]) || (tile_id_L_top_1 == T_GATE_2 && !gate_open[3])
+                || (tile_id_L_mid_1 == T_GATE_3 && !gate_open[2]) || (tile_id_L_top_1 == T_GATE_3 && !gate_open[2]);
 
     // 3. 頭頂偵測
     wire [3:0] grid_above = (char_T > 0) ? (char_T - 1) >> 5 : 0;
@@ -515,7 +451,10 @@ module top(
     wire [3:0] grid_above_1 = (char_T_1 > 0) ? (char_T_1 - 1) >> 5 : 0;
     wire [3:0] tile_id_above_L_1 = (char_T_1 > 0) ? map[grid_above_1][(19 - grid_L_foot_1)*4 +: 4] : T_EMPTY;
     wire [3:0] tile_id_above_R_1 = (char_T_1 > 0) ? map[grid_above_1][(19 - grid_R_foot_1)*4 +: 4] : T_EMPTY;
-    wire hitting_ceiling_1 = (tile_id_above_L_1 >= T_PLATE_1) || (tile_id_above_R_1 >= T_PLATE_1);
+    wire hitting_ceiling_1 = (tile_id_above_L_1 >= T_PLATE_1) || (tile_id_above_R_1 >= T_PLATE_1)
+                || (tile_id_above_L_1 == T_GATE_1 && !gate_open[4]) || (tile_id_above_R_1 == T_GATE_1 && !gate_open[4])
+                || (tile_id_above_L_1 == T_GATE_2 && !gate_open[3]) || (tile_id_above_R_1 == T_GATE_2 && !gate_open[3])
+                || (tile_id_above_L_1 == T_GATE_3 && !gate_open[2]) || (tile_id_above_R_1 == T_GATE_3 && !gate_open[2]);
 
     reg [9:0] jump_start_y;
     reg [9:0] jump_start_y_1;
@@ -523,8 +462,8 @@ module top(
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
             img_x <= 10'd32;
-            img_y <= 10'd416;
-            img_x_1 <= 10'd608;
+            img_y <= 10'd320;
+            img_x_1 <= 10'd32;
             img_y_1 <= 10'd416;
             jumping <= 0;
             jumping_1 <= 0;
@@ -539,9 +478,9 @@ module top(
                 img_x <= img_x + 5; face_left <= 0;
             end
 
-            if (key_down && last_change == KEY_CODES_A) begin 
+            if (key_down && last_change == KEY_CODES_A && !wall_L_1) begin 
                 img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-            end else if (key_down && last_change == KEY_CODES_D) begin 
+            end else if (key_down && last_change == KEY_CODES_D && !wall_R_1) begin 
                 img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
             end
 
@@ -563,10 +502,6 @@ module top(
                 end
             end
 
-<<<<<<< HEAD
-            // 跳躍觸發
-            if (jstkData_0[1] && on_ground && !jumping) begin
-=======
             if (jumping_1) begin
                 if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
                     jumping_1 <= 0;
@@ -586,7 +521,6 @@ module top(
             end
 
             if (jstkData[1] && on_ground && !jumping) begin
->>>>>>> 143308bd0d31178483c6f611df3671fb2a84b699
                 jumping <= 1;
                 on_ground <= 0;
                 jump_start_y <= img_y;
@@ -604,15 +538,31 @@ module top(
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     assign sndData = {8'b100000, {sw[6], sw[7]}};
 
-    // assign sndData_1 = {8'b100000, {sw[8], sw[9]}};
-    always @(sndRec or rst or jstkData_0) begin
+    always @(sndRec or rst or jstkData) begin
             if(rst == 1'b1) begin
                     LED <= 3'b000;
             end
             else begin
-                   LED <= {10'b0,jstkData_1[2], jstkData_1[1], jstkData_1[0], jstkData_0[2], jstkData_0[1], jstkData_0[0]};//0是按搖桿，1是搖桿底下那顆按鈕
-                    
+                   LED <= {13'b0, jstkData[2], jstkData[1], jstkData[0]};//0是按搖桿，1是搖桿底下那顆按鈕
+
             end
+    end
+
+    reg [1:0] spike_sec;
+    reg [31:0] cnt_spike;
+    wire spike_on = (spike_sec > 2'b01);
+
+    always @(posedge clk, posedge rst) begin
+        if (rst) begin 
+            spike_sec <= 0;
+            cnt_spike <= 0;
+        end else begin 
+            cnt_spike <= cnt_spike + 1;
+            if (cnt_spike >= 100000000) begin
+                cnt_spike <= 0;
+                spike_sec <= spike_sec + 1;
+            end
+        end
     end
 
     // 3. 顯示邏輯
@@ -620,8 +570,8 @@ module top(
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end else if (show_pixel_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = pixel; 
-            if (!is_char_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = pixel;
+            if (!is_char_sync && !is_char_sync_1) begin
                 if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
                     if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                     else vgaRed = 4'hF;
@@ -631,12 +581,16 @@ module top(
                 end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
                     if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                     else vgaBlue = 4'hF;
+                end else if (current_id_sync == T_SPIKE) begin
+                    if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
+                    else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                 end
             end
             
             
+            
         end else begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000; 
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end
     end
     
@@ -648,4 +602,7 @@ endmodule
 //11266 walk 192*32 6張(5120-11263)
 //12290 exit 32*32 (11264-12287)
 //13314 jail 32*32 (12288-13311)
+//17410 第二隻idle 128*32 (13312-17407)
+//23554 第二隻walk 192*32 (17408-23551)
+//24578 spike 32*32 (23552-24575)
 //角色32*32

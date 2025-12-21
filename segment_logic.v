@@ -12,7 +12,7 @@ module segment_logic(
         if (rst) begin 
             cnt <= 0;
             sec <= 0;
-            min <= 0;
+            //min <= 0;
         end else begin 
             if (cnt != 100000000) cnt <= cnt + 1;
             else begin 
@@ -23,8 +23,8 @@ module segment_logic(
     end
 
     always @(*) begin
-        nums[15:12] <= min/10;
-        nums[11:8] <= min % 10;
+        nums[15:12] <= sec/ 1000;
+        nums[11:8] <= sec / 100;
         nums[7:4] <= sec / 10;
         nums[3:0] <= sec % 10; 
     end
