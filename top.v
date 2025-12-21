@@ -34,7 +34,7 @@ module top(
     localparam PLAY_SCENE = 4'h1;
     localparam LOSE_SCENE = 4'h2;
     localparam WIN_SCENE = 4'h3;
-
+    wire clk_25MHz;
     always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin 
             state <= START_SCENE;
@@ -44,6 +44,7 @@ module top(
     end
 
     wire btnR_db, btnR_op;
+    
     debounce db1(.pb(btnR), .pb_debounced(btnR_db), .clk(clk_25MHz));
     onepulse op1(.signal(btnR_db), .clk(clk_25MHz), .op(btnR_op));
 
@@ -113,7 +114,7 @@ module top(
     //VGA==========================================================================================================
 
     wire [11:0] data;
-    wire clk_25MHz;
+    
     clock_divider #(.n(2)) clock_25MHZ(.clk(clk), .clk_div(clk_25MHz));
     wire [16:0] pixel_addr;
     wire [11:0] pixel;
@@ -518,13 +519,16 @@ module top(
     reg [23:0] teleport_cd;
 
     reg skill_mode;
-    reg [1:0] select_x_off, select_y_off; // 假設選取範圍是 4x4 格
+    reg [4:0] cursor_x; // 0-19 格
+    reg [3:0] cursor_y; // 0-14 格
     reg q_prev, enter_prev;
 
-    wire [9:0] target_x = (select_x_off * 32); // 起點固定在最左邊 (x=0)，所以直接用 offset
-    wire [9:0] target_y = img_y + (select_y_off * 32);
-    wire [3:0] target_tile_id;
-    assign target_tile_id = map[target_y >> 5][(19 - (target_x >> 5))*4 +: 4];
+    wire [9:0] abs_target_x = cursor_x << 5;
+    wire [9:0] abs_target_y = cursor_y << 5;
+    // 地圖碰撞檢查
+    assign target_tile_id = map[cursor_y][(19 - cursor_x)*4 +: 4];
+    reg teleporting;
+
     // --- 跳躍與移動邏輯 (保持不變) ---
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
@@ -545,104 +549,48 @@ module top(
             teleport_cd <= 24'd0;
 
             skill_mode <= 0;
-            select_x_off <= 0;
-            select_y_off <= 0;
+            cursor_x <= 0;
+            cursor_y <= 0;
+            teleporting <= 1'b0;
+            q_prev <= 1'b0;
+            enter_prev <= 1'b0;
         end else begin
-<<<<<<< Updated upstream
-            if (state != PLAY_SCENE) begin 
-                img_x <= 10'd32;
-                img_y <= 10'd320;
-                img_x_1 <= 10'd32;
-                img_y_1 <= 10'd416;
-                jumping <= 0;
-                jumping_1 <= 0;
-                on_ground <= 1;
-                on_ground_1 <= 1;
-                face_left <= 0;
-                face_left_1 <= 0;
-            end else begin
-
-                if (joy_left && img_x >= 5 && !wall_L) begin
-                    img_x <= img_x - 5; face_left <= 1;
-                end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                    img_x <= img_x + 5; face_left <= 0;
-                end
-
-                if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
-                    img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-                end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
-                    img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
-                end
-
-                if (jumping) begin
-                    if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                        jumping <= 0;
-                    end else begin
-                        img_y <= img_y - 5;
-                    end
-                end
-                else begin
-                    if (tile_below || img_y >= 416) begin
-                        on_ground <= 1;
-                        if (img_y >= 416) img_y <= 416;
-                        else img_y <= (grid_below << 5) - 32;
-                    end else begin
-                        on_ground <= 0;
-                        img_y <= img_y + 5;
-                    end
-                end
-
-                if (jumping_1) begin
-                    if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
-                        jumping_1 <= 0;
-                    end else begin
-                        img_y_1 <= img_y_1 - 5;
-                    end
-                end 
-                else begin
-                    if (tile_below_1 || img_y_1 >= 416) begin
-                        on_ground_1 <= 1;
-                        if (img_y_1 >= 416) img_y_1 <= 416;
-                        else img_y_1 <= (grid_below_1 << 5) - 32;
-                    end else begin
-                        on_ground_1 <= 0;
-                        img_y_1 <= img_y_1 + 5;
-                    end
-                end
-
-                if (jstkData[1] && on_ground && !jumping) begin
-                    jumping <= 1;
-=======
             // ===============================
             // 角色0號的選格瞬移
             // ===============================
             // 按 Q 進入/退出技能模式
             if (key_down[KEY_CODES_Q] && !q_prev) begin
                 skill_mode <= ~skill_mode;
-                select_x_off <= 0;
-                select_y_off <= 0;
+                cursor_x <= 0;
+                cursor_y <= img_y >> 5;
             end
             q_prev <= key_down[KEY_CODES_Q];
 
             if (skill_mode) begin
                 // WASD 選格 (建議加上邊緣偵測防止跑出螢幕)
-                if (key_down[KEY_CODES_A] && select_x_off > 0)  select_x_off <= select_x_off - 1;
-                if (key_down[KEY_CODES_D] && select_x_off < 19) select_x_off <= select_x_off + 1;
-                if (key_down[KEY_CODES_W] && select_y_off > -3) select_y_off <= select_y_off - 1;
-                if (key_down[KEY_CODES_S] && select_y_off < 3)  select_y_off <= select_y_off + 1;
+                if (key_down[KEY_CODES_A] && cursor_x >= 0)  cursor_x <= cursor_x - 1;
+                if (key_down[KEY_CODES_D] && cursor_x <= 20) cursor_x <= cursor_x + 1;
+                if (key_down[KEY_CODES_W] && cursor_y >= img_y-3)  cursor_y <= cursor_y - 1;
+                if (key_down[KEY_CODES_S] && cursor_y <= img_y+3) cursor_y <= cursor_y + 1;
 
                 // Enter 確定瞬移
                 if (key_down[KEY_CODES_ENTER] && !enter_prev) begin
                     // 判定條件：目標點必須在螢幕內，且地圖上該格必須是空的 (T_EMPTY 假設為 4'd0)
-                    if (target_y <= 416 && target_tile_id == 4'd0) begin
-                        img_x <= target_x;
-                        img_y <= target_y;
-                        skill_mode <= 0; // 成功瞬移才關閉
+                    if (target_tile_id == 4'h0 && on_ground) begin // 只有空地能傳
+                        img_x <= cursor_x << 5;
+                        img_y <= cursor_y << 5;
+
+                        jumping     <= 0;
+                        on_ground   <= 1;
+                        teleporting <= 1'b1;   // ★ 關鍵
+
+                        skill_mode <= 0;
                     end
                     // 如果想增加提示，可以在這裡加一個 else 觸發音效，代表目標是牆壁不能傳
                 end
-                enter_prev <= key_down[KEY_CODES_ENTER];
+                
             end
+            enter_prev <= key_down[KEY_CODES_ENTER];
             // ===============================
             // SPACE 邊緣偵測 + 冷卻
             // ===============================
@@ -690,26 +638,24 @@ module top(
             // ===============================
             // 跳躍 / 掉落（角色 0）
             // ===============================
-            if (jumping) begin
-                if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10)
-                    jumping <= 0;
-                else
-                    img_y <= img_y - 5;
-            end else begin
-                if (tile_below || img_y >= 416) begin
-                    on_ground <= 1;
-                    if (img_y >= 416) img_y <= 416;
-                    else img_y <= (grid_below << 5) - 32;
+            if (!skill_mode && !teleporting) begin 
+                if (jumping) begin
+                    if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10)
+                        jumping <= 0;
+                    else
+                        img_y <= img_y - 5;
                 end else begin
->>>>>>> Stashed changes
-                    on_ground <= 0;
-                    jump_start_y <= img_y;
+                    if (tile_below || img_y >= 416) begin
+                        on_ground <= 1;
+                        if (img_y >= 416) img_y <= 416;
+                        else img_y <= (grid_below << 5) - 32;
+                    end else begin
+                        on_ground <= 0;
+                        img_y <= img_y + 5;
+                    end
                 end
-
-<<<<<<< Updated upstream
-                if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
-                    jumping_1 <= 1;
-=======
+            end 
+            if (teleporting) teleporting <= 1'b0;
             // ===============================
             // 跳躍 / 掉落（角色 1）
             // ===============================
@@ -724,13 +670,10 @@ module top(
                     if (img_y_1 >= 416) img_y_1 <= 416;
                     else img_y_1 <= (grid_below_1 << 5) - 32;
                 end else begin
->>>>>>> Stashed changes
                     on_ground_1 <= 0;
                     jump_start_y_1 <= img_y_1;
                 end
-
-<<<<<<< Updated upstream
-=======
+            end
             // ===============================
             // 跳躍觸發
             // ===============================
@@ -744,7 +687,6 @@ module top(
                 jumping_1 <= 1;
                 on_ground_1 <= 0;
                 jump_start_y_1 <= img_y_1;
->>>>>>> Stashed changes
             end
         end
     end
@@ -780,40 +722,15 @@ module top(
 
     // 顯示邏輯
     always @(*) begin
-<<<<<<< Updated upstream
-        if (!valid_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-        end
-        else if (state == PLAY_SCENE) begin
-            if (show_pixel_sync) begin
-                {vgaRed, vgaGreen, vgaBlue} = pixel;
-                if (!is_char_sync && !is_char_sync_1) begin
-                    if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
-                        if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaRed = 4'hF;
-                    end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
-                        if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaGreen = 4'hF;
-                    end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
-                        if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaBlue = 4'hF;
-                    end else if (current_id_sync == T_SPIKE) begin
-                        if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
-                        else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                    end
-                end
-            end else begin
-                {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-=======
         if (state == PLAY_SCENE) begin
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end 
         else if (skill_mode && 
-         ((h_cnt - 2) >= (select_x_off * 32)) && ((h_cnt - 2) < (select_x_off * 32 + 32)) &&
-         (v_cnt >= (img_y + select_y_off * 32)) && (v_cnt < (img_y + select_y_off * 32 + 32))) 
+                ((h_cnt - 2) >= abs_target_x) && ((h_cnt - 2) < (abs_target_x + 32)) &&
+                (v_cnt >= abs_target_y) && (v_cnt < (abs_target_y + 32))) 
         begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; 
+            {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; // 純白色
         end
         else if (show_pixel_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = pixel;
@@ -837,7 +754,6 @@ module top(
             
         end else begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
->>>>>>> Stashed changes
             end
         end else begin 
             {vgaRed, vgaGreen, vgaBlue} = pixel;
@@ -880,13 +796,8 @@ module top(
     always @(*) begin
         next_state = state; 
         if (state == START_SCENE) begin 
-<<<<<<< Updated upstream
             if (btnR_op) next_state = PLAY_SCENE;
         end else if (state == PLAY_SCENE) begin
-=======
-            if (sw[15]) next_state = PLAY_SCENE;
-        end else if (state == PLAY_SCENE) begin 
->>>>>>> Stashed changes
             if (step_on_spike) next_state = LOSE_SCENE;
         end else if (state == LOSE_SCENE) begin 
             if (lose_sec >= 5) next_state = START_SCENE;
