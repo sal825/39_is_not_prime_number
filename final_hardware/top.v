@@ -20,10 +20,12 @@ module top(
     output wire SS,
     output wire MOSI,
     output wire SCLK,
-    input wire MISO_1,
+    // 第二顆搖桿
+    //input wire MISO_1,
     output wire SS_1,
-    output wire MOSI_1,
-    output wire SCLK_1,
+    // output wire MOSI_1,
+    // output wire SCLK_1,
+
     output reg [3:0] data_out
     );
 
@@ -249,6 +251,49 @@ module top(
     wire [9:0] YposData;
     // Holds data to be sent to PmodJSTK
     wire [9:0] sndData;
+
+    // //第二顆搖桿
+    // wire sndRec_1;
+    // wire [39:0] jstkData_1;
+    // wire [9:0] sndData_1;
+
+    // // 共用 SPI 主控線
+    // assign MOSI_1 = MOSI;
+
+    // assign SCLK_1 = SCLK;
+
+    // // MISO 要合併（一次只有一顆會驅動）
+    // assign MISO_1 = MISO;
+    wire SS_sel;
+    reg sel; // 0: JSTK1, 1: JSTK2
+
+    always @(posedge sndRec or posedge rst) begin
+        if (rst)
+            sel <= 0;
+        else
+            sel <= ~sel;
+    end
+    
+
+    assign SS_sel = (sel == 0) ? 1'b0 : 1'b1;
+
+    assign SS   = (sel == 0) ? SS_sel : 1'b1;  // JSTK1
+    assign SS_1 = (sel == 1) ? SS_sel : 1'b1;  // JSTK2
+
+    reg  [39:0] jstkData_0;    // JSTK1
+    reg  [39:0] jstkData_1;    // JSTK2
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            jstkData_0 <= 40'd0;
+            jstkData_1 <= 40'd0;
+        end else if (sndRec) begin
+            if (sel == 0)
+                jstkData_0 <= jstkData;  // 剛剛選的是 JSTK1
+            else
+                jstkData_1 <= jstkData;  // 剛剛選的是 JSTK2
+        end
+    end
+
     
     PmodJSTK PmodJSTK_Int(
         .CLK(clk),
@@ -256,11 +301,22 @@ module top(
         .sndRec(sndRec),
         .DIN(sndData),
         .MISO(MISO),
-        .SS(SS),
+        .SS(SS_sel),
         .SCLK(SCLK),
         .MOSI(MOSI),
         .DOUT(jstkData)
     );
+    // PmodJSTK PmodJSTK_2(
+    //     .CLK(clk),
+    //     .RST(rst),
+    //     .sndRec(sndRec),
+    //     .DIN(sndData_1),
+    //     .MISO(MISO_1),   
+    //     .SS(SS_1),      
+    //     .SCLK(SCLK_1),   
+    //     .MOSI(MOSI_1),   
+    //     .DOUT(jstkData_1)
+    // );
 
     
     ClkDiv_5Hz genSndRec(
@@ -268,16 +324,23 @@ module top(
             .RST(rst),
             .CLKOUT(sndRec)
     );
+    
 
-    // // Collect joystick state for position state
-    // assign YposData = {jstkData[25:24], jstkData[39:32]};
-    // assign XposData = {jstkData[9:8], jstkData[23:16]};
+
+    
 
     // Use state of switch 0 to select output of X position or Y position data to SSD
     //我先隨便找三個switch，{jstkData[9:8], jstkData[23:16]}控制x， {jstkData[25:24], jstkData[39:32]}控制Y
-    wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
-    wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
-    
+    // wire [9:0] jstk_X = {jstkData[9:8], jstkData[23:16]};
+    // wire [9:0] jstk_Y = {jstkData[25:24], jstkData[39:32]};
+    wire [9:0] jstk_X = {jstkData_0[9:8],  jstkData_0[23:16]};
+    wire [9:0] jstk_Y = {jstkData_0[25:24],jstkData_0[39:32]};
+
+    wire [9:0] jstk1_X = {jstkData_1[9:8],  jstkData_1[23:16]};
+    wire [9:0] jstk1_Y = {jstkData_1[25:24],jstkData_1[39:32]};
+
+
+
     localparam IMG_W = 32;//160; // 圖片寬度
     localparam IMG_H = 32;//120; // 圖片高度
     
@@ -285,6 +348,10 @@ module top(
     wire joy_right  = (jstk_X > 10'd600);
     wire joy_up     = (jstk_Y < 10'd400);
     wire joy_down   = (jstk_Y > 10'd600);
+
+    wire joy2_left  = (jstk1_X < 10'd400);
+    wire joy2_right = (jstk1_X > 10'd600);
+
 
     assign is_moving = joy_left || joy_right;
     
@@ -378,7 +445,7 @@ module top(
             end
 
             // 跳躍觸發
-            if (jstkData[1] && on_ground && !jumping) begin
+            if (jstkData_0[1] && on_ground && !jumping) begin
                 jumping <= 1;
                 on_ground <= 0;
                 jump_start_y <= img_y;
@@ -389,13 +456,14 @@ module top(
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     assign sndData = {8'b100000, {sw[6], sw[7]}};
 
-    always @(sndRec or rst or jstkData) begin
+    // assign sndData_1 = {8'b100000, {sw[8], sw[9]}};
+    always @(sndRec or rst or jstkData_0) begin
             if(rst == 1'b1) begin
                     LED <= 3'b000;
             end
             else begin
-                   LED <= {13'b0, jstkData[2], jstkData[1], jstkData[0]};//0是按搖桿，1是搖桿底下那顆按鈕
-
+                   LED <= {10'b0,jstkData_1[2], jstkData_1[1], jstkData_1[0], jstkData_0[2], jstkData_0[1], jstkData_0[0]};//0是按搖桿，1是搖桿底下那顆按鈕
+                    
             end
     end
     
