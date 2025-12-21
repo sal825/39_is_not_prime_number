@@ -263,9 +263,13 @@ module top(
     localparam KEY_CODES_6 = 9'b0_0011_0110;
     localparam KEY_CODES_7 = 9'b0_0011_1101;
     localparam KEY_CODES_8 = 9'b0_0011_1110;
+    localparam KEY_CODES_W = 9'h1D;
     localparam KEY_CODES_A = 9'h1C;
+    localparam KEY_CODES_S = 9'h1B;
     localparam KEY_CODES_D = 9'h23;
     localparam KEY_CODES_SPACE = 9'h29;
+    localparam KEY_CODES_ENTER = 9'h5A;
+    localparam KEY_CODES_Q= 9'h15;
 
     wire [511:0] key_down;
     wire [8:0] last_change;
@@ -509,6 +513,21 @@ module top(
 
     reg [9:0] jump_start_y;
     reg [9:0] jump_start_y_1;
+    // ===== 瞬移技能 =====
+    localparam TELEPORT_DIST = 10'd64;
+    localparam TELEPORT_CD   = 11'd1800;    // 約 3 秒 (5Hz 時脈下)
+
+    reg space_prev;
+    reg [23:0] teleport_cd;
+
+    reg skill_mode;
+    reg [1:0] select_x_off, select_y_off; // 假設選取範圍是 4x4 格
+    reg q_prev, enter_prev;
+
+    wire [9:0] target_x = (select_x_off * 32); // 起點固定在最左邊 (x=0)，所以直接用 offset
+    wire [9:0] target_y = img_y + (select_y_off * 32);
+    wire [3:0] target_tile_id;
+    assign target_tile_id = map[target_y >> 5][(19 - (target_x >> 5))*4 +: 4];
     // --- 跳躍與移動邏輯 (保持不變) ---
     always @(posedge sndRec or posedge rst) begin
         if (rst) begin
@@ -516,90 +535,150 @@ module top(
             img_y <= 10'd320;
             img_x_1 <= 10'd32;
             img_y_1 <= 10'd416;
+
             jumping <= 0;
             jumping_1 <= 0;
             on_ground <= 1;
             on_ground_1 <= 1;
+
             face_left <= 0;
             face_left_1 <= 0;
+
+            space_prev  <= 1'b0;
+            teleport_cd <= 24'd0;
+
+            skill_mode <= 0;
+            select_x_off <= 0;
+            select_y_off <= 0;
         end else begin
-            if (state != PLAY_SCENE) begin 
-                img_x <= 10'd32;
-                img_y <= 10'd320;
-                img_x_1 <= 10'd32;
-                img_y_1 <= 10'd416;
-                jumping <= 0;
-                jumping_1 <= 0;
-                on_ground <= 1;
-                on_ground_1 <= 1;
-                face_left <= 0;
-                face_left_1 <= 0;
-            end else begin
+            // ===============================
+            // 角色0號的選格瞬移
+            // ===============================
+            // 按 Q 進入/退出技能模式
+            if (key_down[KEY_CODES_Q] && !q_prev) begin
+                skill_mode <= ~skill_mode;
+                select_x_off <= 0;
+                select_y_off <= 0;
+            end
+            q_prev <= key_down[KEY_CODES_Q];
 
+            if (skill_mode) begin
+                // WASD 選格 (建議加上邊緣偵測防止跑出螢幕)
+                if (key_down[KEY_CODES_A] && select_x_off > 0)  select_x_off <= select_x_off - 1;
+                if (key_down[KEY_CODES_D] && select_x_off < 19) select_x_off <= select_x_off + 1;
+                if (key_down[KEY_CODES_W] && select_y_off > -3) select_y_off <= select_y_off - 1;
+                if (key_down[KEY_CODES_S] && select_y_off < 3)  select_y_off <= select_y_off + 1;
+
+                // Enter 確定瞬移
+                if (key_down[KEY_CODES_ENTER] && !enter_prev) begin
+                    // 判定條件：目標點必須在螢幕內，且地圖上該格必須是空的 (T_EMPTY 假設為 4'd0)
+                    if (target_y <= 416 && target_tile_id == 4'd0) begin
+                        img_x <= target_x;
+                        img_y <= target_y;
+                        skill_mode <= 0; // 成功瞬移才關閉
+                    end
+                    // 如果想增加提示，可以在這裡加一個 else 觸發音效，代表目標是牆壁不能傳
+                end
+                enter_prev <= key_down[KEY_CODES_ENTER];
+            end
+            // ===============================
+            // SPACE 邊緣偵測 + 冷卻
+            // ===============================
+            space_prev <= key_down[KEY_CODES_SPACE];
+            if (teleport_cd > 0)
+                teleport_cd <= teleport_cd - 1;
+
+            // ===============================
+            // 【瞬移技能】角色 1（最高優先）
+            // ===============================
+            if (key_down[KEY_CODES_SPACE] && !space_prev && teleport_cd == 0) begin
+                teleport_cd <= TELEPORT_CD;
+
+                if (joy_left_1 || face_left_1) begin
+                    // 向左瞬移
+                    if (img_x_1 >= TELEPORT_DIST && !wall_L_1)
+                        img_x_1 <= img_x_1 - TELEPORT_DIST;
+                end else begin
+                    // 向右瞬移
+                    if (img_x_1 + TELEPORT_DIST <= 640 - 32 && !wall_R_1)
+                        img_x_1 <= img_x_1 + TELEPORT_DIST;
+                end
+            end
+            else begin              
+                // ===============================
+                // 左右移動（原本的）
+                // ===============================
                 if (joy_left && img_x >= 5 && !wall_L) begin
-                    img_x <= img_x - 5; face_left <= 1;
+                    img_x <= img_x - 5;
+                    face_left <= 1;
                 end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                    img_x <= img_x + 5; face_left <= 0;
+                    img_x <= img_x + 5;
+                    face_left <= 0;
                 end
 
-                if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
-                    img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
+                if (joy_left_1 && img_x_1 >= 5 && !wall_L_1) begin 
+                    img_x_1 <= img_x_1 - 5;
+                    face_left_1 <= 1;
                 end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
-                    img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
+                    img_x_1 <= img_x_1 + 5;
+                    face_left_1 <= 0;
                 end
+            end
 
-                if (jumping) begin
-                    if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                        jumping <= 0;
-                    end else begin
-                        img_y <= img_y - 5;
-                    end
-                end
-                else begin
-                    if (tile_below || img_y >= 416) begin
-                        on_ground <= 1;
-                        if (img_y >= 416) img_y <= 416;
-                        else img_y <= (grid_below << 5) - 32;
-                    end else begin
-                        on_ground <= 0;
-                        img_y <= img_y + 5;
-                    end
-                end
-
-                if (jumping_1) begin
-                    if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
-                        jumping_1 <= 0;
-                    end else begin
-                        img_y_1 <= img_y_1 - 5;
-                    end
-                end 
-                else begin
-                    if (tile_below_1 || img_y_1 >= 416) begin
-                        on_ground_1 <= 1;
-                        if (img_y_1 >= 416) img_y_1 <= 416;
-                        else img_y_1 <= (grid_below_1 << 5) - 32;
-                    end else begin
-                        on_ground_1 <= 0;
-                        img_y_1 <= img_y_1 + 5;
-                    end
-                end
-
-                if (jstkData[1] && on_ground && !jumping) begin
-                    jumping <= 1;
+            // ===============================
+            // 跳躍 / 掉落（角色 0）
+            // ===============================
+            if (jumping) begin
+                if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10)
+                    jumping <= 0;
+                else
+                    img_y <= img_y - 5;
+            end else begin
+                if (tile_below || img_y >= 416) begin
+                    on_ground <= 1;
+                    if (img_y >= 416) img_y <= 416;
+                    else img_y <= (grid_below << 5) - 32;
+                end else begin
                     on_ground <= 0;
                     jump_start_y <= img_y;
                 end
 
-                if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
-                    jumping_1 <= 1;
+            // ===============================
+            // 跳躍 / 掉落（角色 1）
+            // ===============================
+            if (jumping_1) begin
+                if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10)
+                    jumping_1 <= 0;
+                else
+                    img_y_1 <= img_y_1 - 5;
+            end else begin
+                if (tile_below_1 || img_y_1 >= 416) begin
+                    on_ground_1 <= 1;
+                    if (img_y_1 >= 416) img_y_1 <= 416;
+                    else img_y_1 <= (grid_below_1 << 5) - 32;
+                end else begin
                     on_ground_1 <= 0;
                     jump_start_y_1 <= img_y_1;
                 end
 
+            // ===============================
+            // 跳躍觸發
+            // ===============================
+            if (jstkData[1] && on_ground && !jumping) begin
+                jumping <= 1;
+                on_ground <= 0;
+                jump_start_y <= img_y;
             end
 
+            if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
+                jumping_1 <= 1;
+                on_ground_1 <= 0;
+                jump_start_y_1 <= img_y_1;
+            end
         end
     end
+
+    
 
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     //assign sndData = {8'b100000, {sw[6], sw[7]}};
@@ -630,29 +709,38 @@ module top(
 
     // 顯示邏輯
     always @(*) begin
+        if (state == PLAY_SCENE) begin
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end 
+        else if (skill_mode && 
+         ((h_cnt - 2) >= (select_x_off * 32)) && ((h_cnt - 2) < (select_x_off * 32 + 32)) &&
+         (v_cnt >= (img_y + select_y_off * 32)) && (v_cnt < (img_y + select_y_off * 32 + 32))) 
+        begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; 
         end
-        else if (state == PLAY_SCENE) begin
-            if (show_pixel_sync) begin
-                {vgaRed, vgaGreen, vgaBlue} = pixel;
-                if (!is_char_sync && !is_char_sync_1) begin
-                    if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
-                        if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaRed = 4'hF;
-                    end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
-                        if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaGreen = 4'hF;
-                    end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
-                        if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                        else vgaBlue = 4'hF;
-                    end else if (current_id_sync == T_SPIKE) begin
-                        if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
-                        else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                    end
+        else if (show_pixel_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = pixel;
+            if (!is_char_sync && !is_char_sync_1) begin
+                if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
+                    if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaRed = 4'hF;
+                end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
+                    if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaGreen = 4'hF;
+                end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
+                    if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    else vgaBlue = 4'hF;
+                end else if (current_id_sync == T_SPIKE) begin
+                    if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
+                    else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                 end
-            end else begin
-                {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+            end
+            
+            
+            
+        end else begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
         end else begin 
             {vgaRed, vgaGreen, vgaBlue} = pixel;
