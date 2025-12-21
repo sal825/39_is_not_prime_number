@@ -16,6 +16,7 @@ module mem_addr_gen(
     input face_left_1,
     input [4:0] gate_open,      // 新增：門是否開啟 (來自 Top)
     input [3:0] state,
+    input spike_on,
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
     output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
     output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
@@ -85,14 +86,14 @@ module mem_addr_gen(
     assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
     assign map[12] = {20{T_EMPTY}};
-    assign map[13] = {{2{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {10{T_EMPTY}}, {5{T_PLATE_3}}};
+    assign map[13] = {{3{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
     assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
 
     wire [3:0] current_tile_id = (h_cnt < 640 && v_cnt < 480) ? map[gy][(19-gx)*4 +: 4] : T_EMPTY;//往上取4個bit
     // 判斷當前掃描點是否落在地圖中的「1」區域
     wire is_tile = (current_tile_id == T_WALL) || 
-                   (current_tile_id == T_SPIKE) || 
+                   (current_tile_id == T_SPIKE && spike_on) || 
                    (current_tile_id == T_EXIT) || 
                    (current_tile_id == T_PLATE_1) ||
                    (current_tile_id == T_PLATE_2) ||
@@ -122,9 +123,14 @@ module mem_addr_gen(
             ly = v_cnt >> 2;
         end else if (state == LOSE_SCENE) begin 
             coeff = 160;
-            b_off = 24576;
+            b_off = 43776;
             lx = h_cnt >> 2;
             ly = v_cnt >> 2;
+        end else if (state == WIN_SCENE) begin 
+            coeff = 80;
+            b_off = 62976;
+            lx = h_cnt >> 3;
+            ly = v_cnt >> 3;
         end else if (state == PLAY_SCENE) begin
         
             if (is_tile) begin

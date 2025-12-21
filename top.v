@@ -3,6 +3,7 @@ module top(
     input wire rst,
     inout wire PS2_DATA,
     inout wire PS2_CLK,
+    input wire btnR,
     input wire [15:0] sw,//[0]是音樂開關
     output reg [15:0] LED,
     output wire audio_mclk, // master clock
@@ -34,13 +35,17 @@ module top(
     localparam LOSE_SCENE = 4'h2;
     localparam WIN_SCENE = 4'h3;
 
-    always @(posedge clk, posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin 
             state <= START_SCENE;
         end else begin 
             state <= next_state;
         end
     end
+
+    wire btnR_db, btnR_op;
+    debounce db1(.pb(btnR), .pb_debounced(btnR_db), .clk(clk_25MHz));
+    onepulse op1(.signal(btnR_db), .clk(clk_25MHz), .op(btnR_op));
 
     
     //MUSIC==========================================================================================
@@ -64,7 +69,7 @@ module top(
     end
 
     reg [1:0] volume;
-    always @(posedge clk, posedge rst) begin//later 改
+    always @(posedge clk_25MHz, posedge rst) begin//later 改
         if (rst) begin
             en <= 0;    // 按 reset 就開始播音樂
             volume <= 2'b00;
@@ -188,6 +193,10 @@ module top(
     wire [3:0] current_id_sync;
     wire [4:0] gate_open;
     wire is_char_sync, is_char_sync_1;
+
+    reg [2:0] spike_sec;
+    reg [31:0] cnt_spike;
+    wire spike_on = (spike_sec > 3'b110);
     
     // --- 實例化地址生成器 (記得接上 is_moving) ---
     mem_addr_gen mem_addr_gen_inst(
@@ -212,7 +221,8 @@ module top(
         .gate_open(gate_open),
         .out_is_char_sync(is_char_sync),
         .out_is_char_sync_1(is_char_sync_1),
-        .state(state)
+        .state(state),
+        .spike_on(spike_on)
     );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
@@ -266,7 +276,7 @@ module top(
         .PS2_DATA(PS2_DATA),
         .PS2_CLK(PS2_CLK),
         .rst(rst),
-        .clk(clk)
+        .clk(clk_25MHz)
     );
 
     //7-segment===============================================================================================================
@@ -296,7 +306,7 @@ module top(
     wire [39:0] jstkData;
     
     // Holds data to be sent to PmodJSTK
-    wire [9:0] sndData;//本來放Din
+    //wire [9:0] sndData;//本來放Din
     
     // --- 第一顆搖桿控制 (JA1) ---
     PmodJSTK P1_Controller (
@@ -327,9 +337,9 @@ module top(
 
     
     ClkDiv_5Hz genSndRec(
-            .CLK(clk),
-            .RST(rst),
-            .CLKOUT(sndRec)
+        .CLK(clk),
+        .RST(rst),
+        .CLKOUT(sndRec)
     );
 
     // // Collect joystick state for position state
@@ -394,7 +404,7 @@ module top(
     assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
     assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
     assign map[12] = {20{T_EMPTY}};
-    assign map[13] = {{2{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {10{T_EMPTY}}, {5{T_PLATE_3}}};
+    assign map[13] = {{3{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
     assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
 
     // --- 多點碰撞偵測點 ---
@@ -402,7 +412,6 @@ module top(
     wire [9:0] char_R = img_x + 31;
     wire [9:0] char_T = img_y;
     wire [9:0] char_B = img_y + 31;
-
 
     wire [9:0] char_L_1 = img_x_1;
     wire [9:0] char_R_1 = img_x_1 + 31;
@@ -511,105 +520,118 @@ module top(
             face_left <= 0;
             face_left_1 <= 0;
         end else begin
-            if (joy_left && img_x >= 5 && !wall_L) begin
-                img_x <= img_x - 5; face_left <= 1;
-            end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                img_x <= img_x + 5; face_left <= 0;
-            end
+            if (state != PLAY_SCENE) begin 
+                img_x <= 10'd32;
+                img_y <= 10'd320;
+                img_x_1 <= 10'd32;
+                img_y_1 <= 10'd416;
+                jumping <= 0;
+                jumping_1 <= 0;
+                on_ground <= 1;
+                on_ground_1 <= 1;
+                face_left <= 0;
+                face_left_1 <= 0;
+            end else begin
 
-            if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
-                img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-            end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
-                img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
-            end
-
-            if (jumping) begin
-                if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                    jumping <= 0;
-                end else begin
-                    img_y <= img_y - 5;
+                if (joy_left && img_x >= 5 && !wall_L) begin
+                    img_x <= img_x - 5; face_left <= 1;
+                end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
+                    img_x <= img_x + 5; face_left <= 0;
                 end
-            end 
-            else begin
-                if (tile_below || img_y >= 416) begin
-                    on_ground <= 1;
-                    if (img_y >= 416) img_y <= 416;
-                    else img_y <= (grid_below << 5) - 32;
-                end else begin
+
+                if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
+                    img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
+                end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
+                    img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
+                end
+
+                if (jumping) begin
+                    if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
+                        jumping <= 0;
+                    end else begin
+                        img_y <= img_y - 5;
+                    end
+                end
+                else begin
+                    if (tile_below || img_y >= 416) begin
+                        on_ground <= 1;
+                        if (img_y >= 416) img_y <= 416;
+                        else img_y <= (grid_below << 5) - 32;
+                    end else begin
+                        on_ground <= 0;
+                        img_y <= img_y + 5;
+                    end
+                end
+
+                if (jumping_1) begin
+                    if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
+                        jumping_1 <= 0;
+                    end else begin
+                        img_y_1 <= img_y_1 - 5;
+                    end
+                end 
+                else begin
+                    if (tile_below_1 || img_y_1 >= 416) begin
+                        on_ground_1 <= 1;
+                        if (img_y_1 >= 416) img_y_1 <= 416;
+                        else img_y_1 <= (grid_below_1 << 5) - 32;
+                    end else begin
+                        on_ground_1 <= 0;
+                        img_y_1 <= img_y_1 + 5;
+                    end
+                end
+
+                if (jstkData[1] && on_ground && !jumping) begin
+                    jumping <= 1;
                     on_ground <= 0;
-                    img_y <= img_y + 5;
+                    jump_start_y <= img_y;
                 end
-            end
 
-            if (jumping_1) begin
-                if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
-                    jumping_1 <= 0;
-                end else begin
-                    img_y_1 <= img_y_1 - 5;
-                end
-            end 
-            else begin
-                if (tile_below_1 || img_y_1 >= 416) begin
-                    on_ground_1 <= 1;
-                    if (img_y_1 >= 416) img_y_1 <= 416;
-                    else img_y_1 <= (grid_below_1 << 5) - 32;
-                end else begin
+                if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
+                    jumping_1 <= 1;
                     on_ground_1 <= 0;
-                    img_y_1 <= img_y_1 + 5;
+                    jump_start_y_1 <= img_y_1;
                 end
-            end
 
-            if (jstkData[1] && on_ground && !jumping) begin
-                jumping <= 1;
-                on_ground <= 0;
-                jump_start_y <= img_y;
-            end
-
-            if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
-                jumping_1 <= 1;
-                on_ground_1 <= 0;
-                jump_start_y_1 <= img_y_1;
             end
 
         end
     end
 
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
-    assign sndData = {8'b100000, {sw[6], sw[7]}};
+    //assign sndData = {8'b100000, {sw[6], sw[7]}};
 
     always @(sndRec or rst or jstkData) begin
             if(rst == 1'b1) begin
-                    LED <= 3'b000;
+                LED <= 3'b000;
             end
             else begin
-                   LED <= {10'b0, jstkData_1[2:0],jstkData[2:0]};//0是按搖桿，1是搖桿底下那顆按鈕
-
+                LED <= {10'b0, jstkData_1[2:0],jstkData[2:0]};//0是按搖桿，1是搖桿底下那顆按鈕
             end
     end
 
-    reg [3:0] spike_sec;
-    reg [31:0] cnt_spike;
-    wire spike_on = (spike_sec > 3'b100);
+    
 
-    always @(posedge clk, posedge rst) begin
-        if (rst) begin 
+    always @(posedge clk_25MHz, posedge rst) begin
+        if (rst) begin
             spike_sec <= 0;
             cnt_spike <= 0;
-        end else begin 
+        end else begin
             cnt_spike <= cnt_spike + 1;
-            if (cnt_spike >= 100000000) begin
+            if (cnt_spike >= 25000000) begin
                 cnt_spike <= 0;
                 spike_sec <= spike_sec + 1;
             end
         end
     end
 
-    // 3. 顯示邏輯
+    // 顯示邏輯
     always @(*) begin
-        if (state == PLAY_SCENE) begin
-            if (!valid_sync) begin
-                {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-            end else if (show_pixel_sync) begin
+        if (!valid_sync) begin
+            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end
+        else if (state == PLAY_SCENE) begin
+            if (show_pixel_sync) begin
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
                 if (!is_char_sync && !is_char_sync_1) begin
                     if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
@@ -625,7 +647,7 @@ module top(
                         if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
                         else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                     end
-                end        
+                end
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
@@ -634,16 +656,26 @@ module top(
         end
     end
 
-    wire step_on_spike = spike_on && (map[char_B >> 5][(19 - (char_L >> 5))*4 +: 4] == T_SPIKE || map[char_B >> 5][(19 - (char_R >> 5))*4 +: 4] == T_SPIKE ||
-                         map[char_B_1 >> 5][(19 - (char_L_1 >> 5))*4 +: 4] == T_SPIKE || map[char_B_1 >> 5][(19 - (char_R_1 >> 5))*4 +: 4] == T_SPIKE);
-    
+    reg step_on_spike;
+    always @(posedge clk_25MHz, posedge rst) begin
+        if (rst) step_on_spike <= 0;
+        else begin
+            if (state == PLAY_SCENE) begin
+                step_on_spike <= spike_on && (map[char_B >> 5][(19 - ((char_L + 5) >> 5))*4 +: 4] == T_SPIKE || map[char_B >> 5][(19 - ((char_R - 5) >> 5))*4 +: 4] == T_SPIKE ||
+                        map[char_B_1 >> 5][(19 - ((char_L_1 + 5) >> 5))*4 +: 4] == T_SPIKE || map[char_B_1 >> 5][(19 - ((char_R_1 - 5) >> 5))*4 +: 4] == T_SPIKE);
+            end else begin 
+                step_on_spike <= 0;
+            end           
+        end
+    end
+        
     reg [2:0] lose_sec;
     reg [31:0] cnt_lose;
     always @(posedge clk, posedge rst) begin
-        if (rst) begin 
+        if (rst) begin
             lose_sec <= 0;
             cnt_lose <= 0;
-        end else begin 
+        end else begin
             if (state == LOSE_SCENE) begin 
                 cnt_lose <= cnt_lose + 1;
                 if (cnt_lose >= 100000000) begin 
@@ -660,7 +692,7 @@ module top(
     always @(*) begin
         next_state = state; 
         if (state == START_SCENE) begin 
-            if (sw[15]) next_state = PLAY_SCENE;
+            if (btnR_op) next_state = PLAY_SCENE;
         end else if (state == PLAY_SCENE) begin
             if (step_on_spike) next_state = LOSE_SCENE;
         end else if (state == LOSE_SCENE) begin
@@ -679,4 +711,6 @@ endmodule
 //23554 第二隻walk 192*32 (17408-23551)
 //24578 spike 32*32 (23552-24575)
 //43778 start 160*120 (24576-43775)
+//62978 lose 160*120 (43776-62975)
+//67778 win 80*60 (62976-67775)
 //角色32*32
