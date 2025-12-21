@@ -606,30 +606,31 @@ module top(
 
     // 3. 顯示邏輯
     always @(*) begin
-        if (!valid_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-        end else if (show_pixel_sync) begin
-            {vgaRed, vgaGreen, vgaBlue} = pixel;
-            if (!is_char_sync && !is_char_sync_1) begin
-                if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
-                    if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                    else vgaRed = 4'hF;
-                end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
-                    if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                    else vgaGreen = 4'hF;
-                end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
-                    if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                    else vgaBlue = 4'hF;
-                end else if (current_id_sync == T_SPIKE) begin
-                    if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
-                    else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
-                end
+        if (state == PLAY_SCENE) begin
+            if (!valid_sync) begin
+                {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+            end else if (show_pixel_sync) begin
+                {vgaRed, vgaGreen, vgaBlue} = pixel;
+                if (!is_char_sync && !is_char_sync_1) begin
+                    if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
+                        if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                        else vgaRed = 4'hF;
+                    end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
+                        if (current_id_sync == T_GATE_2 && gate_open[3]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                        else vgaGreen = 4'hF;
+                    end else if (current_id_sync == T_PLATE_3 || current_id_sync == T_GATE_3) begin 
+                        if (current_id_sync == T_GATE_3 && gate_open[2]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                        else vgaBlue = 4'hF;
+                    end else if (current_id_sync == T_SPIKE) begin
+                        if (spike_on) {vgaRed, vgaGreen, vgaBlue} = pixel;
+                        else {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+                    end
+                end        
+            end else begin
+                {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
-            
-            
-            
-        end else begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+        end else begin 
+            {vgaRed, vgaGreen, vgaBlue} = pixel;
         end
     end
 
@@ -645,7 +646,7 @@ module top(
         end else begin 
             if (state == LOSE_SCENE) begin 
                 cnt_lose <= cnt_lose + 1;
-                if (cnt_lose >= 10000000000) begin 
+                if (cnt_lose >= 100000000) begin 
                     cnt_lose <= 0;
                     lose_sec <= lose_sec + 1;
                 end
@@ -659,10 +660,10 @@ module top(
     always @(*) begin
         next_state = state; 
         if (state == START_SCENE) begin 
-            if (key_down && last_change == KEY_CODES_1) next_state = PLAY_SCENE;
-        end else if (state == PLAY_SCENE) begin 
+            if (sw[15]) next_state = PLAY_SCENE;
+        end else if (state == PLAY_SCENE) begin
             if (step_on_spike) next_state = LOSE_SCENE;
-        end else if (state == LOSE_SCENE) begin 
+        end else if (state == LOSE_SCENE) begin
             if (lose_sec >= 5) next_state = START_SCENE;
         end
     end

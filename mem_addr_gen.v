@@ -26,6 +26,11 @@ module mem_addr_gen(
     // 角色圖塊的大小固定為 32x32 像素
     localparam IMG_W = 32;
     localparam IMG_H = 32;
+
+    localparam START_SCENE = 4'h0;
+    localparam PLAY_SCENE = 4'h1;
+    localparam LOSE_SCENE = 4'h2;
+    localparam WIN_SCENE = 4'h3;
     
     // --- 1. 座標同步暫存器 (Shadow Registers) ---
     // 目的：為了解決搖桿不同步產生的雜訊線。
@@ -109,61 +114,74 @@ module mem_addr_gen(
     always @(*) begin
         // 預設初始化，防止產生 Latch
         lx = 0; ly = 0; b_off = 0; coeff = 1;
+
+        if (state == START_SCENE) begin 
+            coeff = 160;
+            b_off = 24576;
+            lx = h_cnt >> 2;
+            ly = v_cnt >> 2;
+        end else if (state == LOSE_SCENE) begin 
+            coeff = 160;
+            b_off = 24576;
+            lx = h_cnt >> 2;
+            ly = v_cnt >> 2;
+        end else if (state == PLAY_SCENE) begin
         
-        if (is_tile) begin
-            // 地板/牆壁模式
-            lx = h_cnt[4:0];    // 等同於 h_cnt % 32
-            ly = v_cnt[4:0];    // 等同於 v_cnt % 32
-            b_off = 0;          // 地板圖磚在 COE 最前面 (0)
-            coeff = 32;         // 地板圖檔原始寬度是 32
-            case (current_tile_id)
-                T_WALL:  b_off = 0;
-                T_EXIT:  b_off = 11264;
-                T_PLATE_1: b_off = 0;
-                T_GATE_1:  b_off = 12288;
-                T_PLATE_2: b_off = 0;
-                T_GATE_2:  b_off = 12288;
-                T_PLATE_3: b_off = 0;
-                T_GATE_3:  b_off = 12288;
-                T_SPIKE: b_off = 23552;
-                default: b_off = 0;
-            endcase
-        end 
-        else if (is_char) begin 
-            // 角色模式
-            ly = (v_cnt - y_s); // 垂直相對座標
-            
-            // 處理鏡像與動畫位址
-            if (is_moving) begin
-                // 走路動畫 (Walk): 寬度 192, 位於位址 8192
-                // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
-                lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
-                b_off = 5120;
-                coeff = 192;
-            end else begin
-                // 待機動畫 (Idle): 寬度 128, 位於位址 4096
-                lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
-                b_off = 1024;
-                coeff = 128;
-            end
-        end else if (is_char_1) begin 
-            // 角色模式
-            ly = (v_cnt - y_s_1); // 垂直相對座標
-            
-            // 處理鏡像與動畫位址
-            if (is_moving_1) begin
-                // 走路動畫 (Walk): 寬度 192, 位於位址 8192
-                // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
-                lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
-                b_off = 17408;
-                coeff = 192;
-            end else begin
-                // 待機動畫 (Idle): 寬度 128, 位於位址 4096
-                lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
-                b_off = 13312;
-                coeff = 128;
-            end
-        end 
+            if (is_tile) begin
+                // 地板/牆壁模式
+                lx = h_cnt[4:0];    // 等同於 h_cnt % 32
+                ly = v_cnt[4:0];    // 等同於 v_cnt % 32
+                b_off = 0;          // 地板圖磚在 COE 最前面 (0)
+                coeff = 32;         // 地板圖檔原始寬度是 32
+                case (current_tile_id)
+                    T_WALL:  b_off = 0;
+                    T_EXIT:  b_off = 11264;
+                    T_PLATE_1: b_off = 0;
+                    T_GATE_1:  b_off = 12288;
+                    T_PLATE_2: b_off = 0;
+                    T_GATE_2:  b_off = 12288;
+                    T_PLATE_3: b_off = 0;
+                    T_GATE_3:  b_off = 12288;
+                    T_SPIKE: b_off = 23552;
+                    default: b_off = 0;
+                endcase
+            end 
+            else if (is_char) begin 
+                // 角色模式
+                ly = (v_cnt - y_s); // 垂直相對座標
+                
+                // 處理鏡像與動畫位址
+                if (is_moving) begin
+                    // 走路動畫 (Walk): 寬度 192, 位於位址 8192
+                    // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
+                    lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
+                    b_off = 5120;
+                    coeff = 192;
+                end else begin
+                    // 待機動畫 (Idle): 寬度 128, 位於位址 4096
+                    lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
+                    b_off = 1024;
+                    coeff = 128;
+                end
+            end else if (is_char_1) begin 
+                // 角色模式
+                ly = (v_cnt - y_s_1); // 垂直相對座標
+                
+                // 處理鏡像與動畫位址
+                if (is_moving_1) begin
+                    // 走路動畫 (Walk): 寬度 192, 位於位址 8192
+                    // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
+                    lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
+                    b_off = 17408;
+                    coeff = 192;
+                end else begin
+                    // 待機動畫 (Idle): 寬度 128, 位於位址 4096
+                    lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
+                    b_off = 13312;
+                    coeff = 128;
+                end
+            end 
+        end
     end
 
     // --- 5. 管線化與同步 (Pipeline - T1~T2 階段) ---
