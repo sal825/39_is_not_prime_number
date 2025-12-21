@@ -17,6 +17,7 @@ module mem_addr_gen(
     input [4:0] gate_open,      // 新增：門是否開啟 (來自 Top)
     input [3:0] state,
     input spike_on,
+    input [3:0] next_state,
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
     output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
     output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
@@ -32,6 +33,7 @@ module mem_addr_gen(
     localparam PLAY_SCENE = 4'h1;
     localparam LOSE_SCENE = 4'h2;
     localparam WIN_SCENE = 4'h3;
+    localparam BOSS_SCENE = 4'h4;
     
     // --- 1. 座標同步暫存器 (Shadow Registers) ---
     // 目的：為了解決搖桿不同步產生的雜訊線。
@@ -60,10 +62,9 @@ module mem_addr_gen(
     
     // --- 3. 地圖定義 (Map Array) ---
     // 每個 bit 代表一個 32x32 的區塊。1: 障礙物/地板, 0: 空地
-    wire [79:0] map [0:14];
+    reg [79:0] map [0:14];
 
-    
-    localparam T_EMPTY = 4'h0;
+    localparam T_EMPTY = 4'h0; //不能改這個數字!!
     localparam T_SPIKE = 4'h1;
     localparam T_GATE_1  = 4'h2;
     localparam T_GATE_2  = 4'h3;
@@ -73,24 +74,46 @@ module mem_addr_gen(
     localparam T_PLATE_3 = 4'h7;
     localparam T_EXIT  = 4'h8;
     localparam T_WALL  = 4'h9;
-    assign map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
-    assign map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
-    assign map[2]  = {20{T_EMPTY}};
-    assign map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-    assign map[4]  = {20{T_EMPTY}};
-    assign map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-    assign map[6]  = {20{T_EMPTY}};
-    assign map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-    assign map[8]  = {20{T_EMPTY}};
-    assign map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-    assign map[10] = {{5{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-    assign map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
-    assign map[12] = {20{T_EMPTY}};
-    assign map[13] = {{3{T_EMPTY}}, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-    assign map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+    always @(*) begin
+        if (next_state == PLAY_SCENE) begin 
+            map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
+            map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
+            map[2]  = {20{T_EMPTY}};
+            map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[4]  = {20{T_EMPTY}};
+            map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[6]  = {20{T_EMPTY}};
+            map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[8]  = {20{T_EMPTY}};
+            map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[10] = {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+            map[12] = {{15{T_EMPTY}}, T_EXIT};
+            map[13] = {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
+            map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+        end else if (next_state == BOSS_SCENE) begin 
+            map[0]  = {20{T_WALL}};
+            map[1]  = {20{T_WALL}};
+            map[2]  = {20{T_WALL}};
+            map[3]  = {20{T_WALL}};
+            map[4]  = {20{T_WALL}};
+            map[5]  = {20{T_WALL}};
+            map[6]  = {20{T_WALL}};
+            map[7]  = {20{T_WALL}};
+            map[8]  = {20{T_WALL}};
+            map[9]  = {20{T_EMPTY}};
+            map[10]  = {20{T_EMPTY}};
+            map[11]  = {20{T_WALL}};
+            map[12]  = {20{T_EMPTY}};
+            map[13]  = {20{T_EMPTY}};
+            map[14]  = {20{T_WALL}};
+        end
+    end
+
 
 
     wire [3:0] current_tile_id = (h_cnt < 640 && v_cnt < 480) ? map[gy][(19-gx)*4 +: 4] : T_EMPTY;//往上取4個bit
+    //wire [3:0] current_tile_id_1 = (h_cnt < 640 && v_cnt < 480) ? map_1[gy][(19-gx)*4 +: 4] : T_EMPTY;//往上取4個bit
     // 判斷當前掃描點是否落在地圖中的「1」區域
     wire is_tile = (current_tile_id == T_WALL) || 
                    (current_tile_id == T_SPIKE && spike_on) || 
@@ -101,6 +124,8 @@ module mem_addr_gen(
                    (current_tile_id == T_GATE_1 && !gate_open[4]) ||
                    (current_tile_id == T_GATE_2 && !gate_open[3]) ||
                    (current_tile_id == T_GATE_3 && !gate_open[2]);
+
+    //wire is_tile_1 = (current_tile_id_1 == T_WALL) || (current_tile_id_1 == T_SPIKE);
     
     // 最終顯示開關：只要是角色或是地圖塊就要亮起顏色
     //wire comb_show = is_char || is_char_1 || is_tile;
@@ -122,17 +147,79 @@ module mem_addr_gen(
             lx = h_cnt >> 2;
             ly = v_cnt >> 2;
         end else if (state == LOSE_SCENE) begin 
-            coeff = 160;
-            b_off = 43776;
-            lx = h_cnt >> 2;
-            ly = v_cnt >> 2;
-        end else if (state == WIN_SCENE) begin 
             coeff = 80;
-            b_off = 62976;
+            b_off = 43776;
             lx = h_cnt >> 3;
             ly = v_cnt >> 3;
+        end else if (state == WIN_SCENE) begin 
+            coeff = 80;
+            b_off = 48576;
+            lx = h_cnt >> 3;
+            ly = v_cnt >> 3;
+        end else if (state == BOSS_SCENE) begin 
+            if (v_cnt < 256) begin
+                coeff = 80;
+                b_off = 53376;
+                lx = h_cnt % 80;
+                ly = v_cnt % 128;
+            end else begin 
+                if (is_tile) begin
+                    // 地板/牆壁模式
+                    lx = h_cnt[4:0];    // 等同於 h_cnt % 32
+                    ly = v_cnt[4:0];    // 等同於 v_cnt % 32
+                    b_off = 0;          // 地板圖磚在 COE 最前面 (0)
+                    coeff = 32;         // 地板圖檔原始寬度是 32
+                    case (current_tile_id)
+                        T_WALL:  b_off = 0;
+                        T_EXIT:  b_off = 11264;
+                        T_PLATE_1: b_off = 0;
+                        T_GATE_1:  b_off = 12288;
+                        T_PLATE_2: b_off = 0;
+                        T_GATE_2:  b_off = 12288;
+                        T_PLATE_3: b_off = 0;
+                        T_GATE_3:  b_off = 12288;
+                        T_SPIKE: b_off = 23552;
+                        default: b_off = 0;
+                    endcase
+                end 
+                else if (is_char) begin 
+                    // 角色模式
+                    ly = (v_cnt - y_s); // 垂直相對座標
+                    
+                    // 處理鏡像與動畫位址
+                    if (is_moving) begin
+                        // 走路動畫 (Walk): 寬度 192, 位於位址 8192
+                        // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
+                        lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
+                        b_off = 5120;
+                        coeff = 192;
+                    end else begin
+                        // 待機動畫 (Idle): 寬度 128, 位於位址 4096
+                        lx = (face_left ? (5'd31 - rel_x) : rel_x) + (frame_idx * 32);
+                        b_off = 1024;
+                        coeff = 128;
+                    end
+                end else if (is_char_1) begin 
+                    // 角色模式
+                    ly = (v_cnt - y_s_1); // 垂直相對座標
+                    
+                    // 處理鏡像與動畫位址
+                    if (is_moving_1) begin
+                        // 走路動畫 (Walk): 寬度 192, 位於位址 8192
+                        // (face_left ? (31 - rel_x) : rel_x) 實現硬體鏡像翻轉
+                        lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
+                        b_off = 17408;
+                        coeff = 192;
+                    end else begin
+                        // 待機動畫 (Idle): 寬度 128, 位於位址 4096
+                        lx = (face_left_1 ? (5'd31 - rel_x_1) : rel_x_1) + (frame_idx_1 * 32);
+                        b_off = 13312;
+                        coeff = 128;
+                    end
+                end 
+            end
         end else if (state == PLAY_SCENE) begin
-        
+
             if (is_tile) begin
                 // 地板/牆壁模式
                 lx = h_cnt[4:0];    // 等同於 h_cnt % 32
