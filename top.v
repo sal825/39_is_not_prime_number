@@ -614,6 +614,25 @@ module top(
                 || (tile_id_above_L_1 == T_GATE_2 && !gate_open[3]) || (tile_id_above_R_1 == T_GATE_2 && !gate_open[3])
                 || (tile_id_above_L_1 == T_GATE_3 && !gate_open[2]) || (tile_id_above_R_1 == T_GATE_3 && !gate_open[2]);
 
+    //為了用不同的clock所以做enable
+    // 建議修改 ClkDiv 的邏輯，使其產生一個 "tick" (脈衝) 而非 50% 佔空比的時脈
+    reg [22:0] tick_cnt;
+    wire move_en; // 這是我們邏輯的觸發開關
+
+    always @(posedge clk_25MHz or posedge rst) begin
+        if (rst) begin
+            tick_cnt <= 0;
+        end else begin
+            if (tick_cnt >= 5000000) // 25MHz / 5Hz = 5,000,000
+                tick_cnt <= 0;
+            else
+                tick_cnt <= tick_cnt + 1;
+        end
+    end
+    assign move_en = (tick_cnt == 5000000); // 每 0.2 秒產生一個週期寬度的 1
+
+
+
     reg [9:0] jump_start_y;
     reg [9:0] jump_start_y_1;
     // --- 瞬移技能邏輯 ---
@@ -634,179 +653,156 @@ module top(
     assign target_tile_id = map[cursor_y][(19 - cursor_x)*4 +: 4];
     reg teleporting;
     // --- 跳躍與移動邏輯 (保持不變) ---
-    always @(posedge sndRec or posedge rst) begin
+    // 請確保在 top 模組中有定義 move_en
+    // 例如產生 20Hz: 
+    // reg [22:0] move_cnt; wire move_en = (move_cnt == 1250000);
+    // always @(posedge clk_25MHz) move_cnt <= (move_en)? 0 : move_cnt + 1;
+
+    always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin
-            img_x <= 10'd32;
-            img_y <= 10'd320;
-            img_x_1 <= 10'd32;
-            img_y_1 <= 10'd416;
-            jumping <= 0;
-            jumping_1 <= 0;
-            on_ground <= 1;
-            on_ground_1 <= 1;
-            face_left <= 0;
-            face_left_1 <= 0;
-
-            space_prev  <= 1'b0;
-            teleport_cd <= 24'd0;
-
-            skill_mode <= 0;
-            cursor_x <= 0;
-            cursor_y <= 0;
-            teleporting <= 1'b0;
-            q_prev <= 1'b0;
-            enter_prev <= 1'b0;
+            img_x <= 10'd32;      img_y <= 10'd320;
+            img_x_1 <= 10'd32;    img_y_1 <= 10'd416;
+            jumping <= 0;         jumping_1 <= 0;
+            on_ground <= 1;       on_ground_1 <= 1;
+            face_left <= 0;       face_left_1 <= 0;
+            space_prev <= 1'b0;   teleport_cd <= 24'd0;
+            skill_mode <= 0;      teleporting <= 1'b0;
+            cursor_x <= 0;        cursor_y <= 0;
+            q_prev <= 1'b0;       enter_prev <= 1'b0;
         end else begin
+            // --- 立即判斷狀態切換 (START/BOSS Reset) ---
             if (state == START_SCENE || (state == BOSS_SCENE && boss_sec <= 1)) begin 
-                img_x <= 10'd32;
-                img_y <= 10'd320;
-                img_x_1 <= 10'd32;
-                img_y_1 <= 10'd416;
-                jumping <= 0;
-                jumping_1 <= 0;
-                on_ground <= 1;
-                on_ground_1 <= 1;
-                face_left <= 0;
-                face_left_1 <= 0;
-                space_prev  <= 1'b0;
-                teleport_cd <= 24'd0;
-
-                skill_mode <= 0;
-                cursor_x <= 0;
-                cursor_y <= 0;
+                img_x <= 10'd32;      img_y <= 10'd320;
+                img_x_1 <= 10'd32;    img_y_1 <= 10'd416;
+                jumping <= 0;         jumping_1 <= 0;
+                on_ground <= 1;       on_ground_1 <= 1;
+                face_left <= 0;       face_left_1 <= 0;
+                teleport_cd <= 24'd0; skill_mode <= 0;
                 teleporting <= 1'b0;
-                q_prev <= 1'b0;
-                enter_prev <= 1'b0;
-            end else if (state == PLAY_SCENE || state == BOSS_SCENE) begin
+            end 
+            else if (state == PLAY_SCENE || state == BOSS_SCENE) begin
 
-                // ===============================
-                // 角色0號的選格瞬移
-                // ===============================
-                // 按 Q 進入/退出技能模式
+                // ============================================================
+                // [A] 鍵盤即時偵測區 (不在 move_en 內，反應速度 25MHz)
+                // ============================================================
+                
+                // 1. Q 鍵進入/退出技能模式
                 if (key_down[KEY_CODES_Q] && !q_prev) begin
                     skill_mode <= ~skill_mode;
-                    cursor_x <= 0;
+                    cursor_x <= img_x >> 5; // 進入時游標跟隨角色
                     cursor_y <= img_y >> 5;
                 end
                 q_prev <= key_down[KEY_CODES_Q];
 
-                if (skill_mode) begin
-                    // WASD 選格 (建議加上邊緣偵測防止跑出螢幕)
-                    if (key_down[KEY_CODES_A] && cursor_x >= 0)  cursor_x <= cursor_x - 1;
-                    if (key_down[KEY_CODES_D] && cursor_x <= 20) cursor_x <= cursor_x + 1;
-                    if (key_down[KEY_CODES_W] && cursor_y >= (img_y>>5)-3)  cursor_y <= cursor_y - 1;
-                    if (key_down[KEY_CODES_S] && cursor_y <= (img_y>>5)+3) cursor_y <= cursor_y + 1;
-
-                    // Enter 確定瞬移
-                    if (key_down[KEY_CODES_ENTER] && !enter_prev) begin
-                        // 判定條件：目標點必須在螢幕內，且地圖上該格必須是空的 (T_EMPTY 假設為 4'd0)
-                        if (target_tile_id == 4'h0 && on_ground) begin // 只有空地能傳
-                            img_x <= cursor_x << 5;
-                            img_y <= cursor_y << 5;
-
-                            jumping     <= 0;
-                            on_ground   <= 1;
-                            teleporting <= 1'b1;   
-
-                            skill_mode <= 0;
-                        end
-                        // 如果想增加提示，可以在這裡加一個 else 觸發音效，代表目標是牆壁不能傳
+                // 2. Enter 確定瞬移 (角色 0)
+                if (skill_mode && key_down[KEY_CODES_ENTER] && !enter_prev) begin
+                    if (target_tile_id == 4'h0 && on_ground) begin
+                        img_x <= cursor_x << 5;
+                        img_y <= cursor_y << 5;
+                        jumping <= 0;
+                        on_ground <= 1;
+                        teleporting <= 1'b1;
+                        skill_mode <= 0;
                     end
-                    
                 end
                 enter_prev <= key_down[KEY_CODES_ENTER];
-                // ===============================
-                // SPACE 邊緣偵測 + 冷卻
-                // ===============================
-                space_prev <= key_down[KEY_CODES_SPACE];
-                if (teleport_cd > 0) begin
-                    teleport_cd <= teleport_cd - 1;
-                end
-                // ===============================
-                // 【瞬移技能】角色 1（最高優先）
-                // ===============================
+
+                // 3. Space 瞬移 (角色 1)
                 if (key_down[KEY_CODES_SPACE] && !space_prev && teleport_cd == 0) begin
                     teleport_cd <= TELEPORT_CD;
-
                     if (joy_left_1 || face_left_1) begin
-                        // 向左瞬移
                         if (img_x_1 >= TELEPORT_DIST && !wall_L_1)
                             img_x_1 <= img_x_1 - TELEPORT_DIST;
                     end else begin
-                        // 向右瞬移
                         if (img_x_1 + TELEPORT_DIST <= 640 - 32 && !wall_R_1)
                             img_x_1 <= img_x_1 + TELEPORT_DIST;
                     end
-                end else begin
+                end
+                space_prev <= key_down[KEY_CODES_SPACE];
 
-                    if (joy_left && img_x >= 5 && !wall_L) begin
-                        img_x <= img_x - 5; face_left <= 1;
-                    end else if (joy_right && img_x < (640 - 32 - 5) && !wall_R) begin
-                        img_x <= img_x + 5; face_left <= 0;
+                // ============================================================
+                // [B] 定速移動邏輯區 (在 move_en 內，控制遊戲節奏)
+                // ============================================================
+                if (move_en) begin
+                    
+                    // --- 游標移動 (放在這裡防止 WASD 跑太快) ---
+                    if (skill_mode) begin
+                        if (key_down[KEY_CODES_A] && cursor_x > 0)  cursor_x <= cursor_x - 1;
+                        if (key_down[KEY_CODES_D] && cursor_x < 19) cursor_x <= cursor_x + 1;
+                        if (key_down[KEY_CODES_W] && cursor_y > 0)  cursor_y <= cursor_y - 1;
+                        if (key_down[KEY_CODES_S] && cursor_y < 14) cursor_y <= cursor_y + 1;
                     end
 
-                    if (joy_left_1 && img_x_1 >= 5  && !wall_L_1) begin 
+                    // --- 角色 0 走路與重力 ---
+                    if (!skill_mode && !teleporting) begin
+                        // 左右移動 (搖桿)
+                        if (joy_left && img_x >= 5 && !wall_L) begin
+                            img_x <= img_x - 5; face_left <= 1;
+                        end else if (joy_right && img_x < (640 - 37) && !wall_R) begin
+                            img_x <= img_x + 5; face_left <= 0;
+                        end
+
+                        // 跳躍/掉落
+                        if (jumping) begin
+                            if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10)
+                                jumping <= 0;
+                            else
+                                img_y <= img_y - 5;
+                        end else begin
+                            if (tile_below || img_y >= 416) begin
+                                on_ground <= 1;
+                                img_y <= (img_y >= 416) ? 416 : (grid_below << 5) - 32;
+                            end else begin
+                                on_ground <= 0;
+                                img_y <= img_y + 5;
+                            end
+                        end
+                    end
+
+                    // --- 角色 1 走路與重力 ---
+                    if (joy_left_1 && img_x_1 >= 5 && !wall_L_1) begin 
                         img_x_1 <= img_x_1 - 5; face_left_1 <= 1;
-                    end else if (joy_right_1 && img_x_1 < (640 - 32 - 5) && !wall_R_1) begin 
+                    end else if (joy_right_1 && img_x_1 < (640 - 37) && !wall_R_1) begin 
                         img_x_1 <= img_x_1 + 5; face_left_1 <= 0;
                     end
-                end
-                if (!skill_mode && !teleporting) begin
-                    if (jumping) begin
-                        if (hitting_ceiling || img_y <= jump_start_y - 64 || img_y <= 10) begin
-                            jumping <= 0;
+
+                    if (jumping_1) begin
+                        if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10)
+                            jumping_1 <= 0;
+                        else
+                            img_y_1 <= img_y_1 - 5;
+                    end else begin
+                        if (tile_below_1 || img_y_1 >= 416) begin
+                            on_ground_1 <= 1;
+                            img_y_1 <= (img_y_1 >= 416) ? 416 : (grid_below_1 << 5) - 32;
                         end else begin
-                            img_y <= img_y - 5;
+                            on_ground_1 <= 0;
+                            img_y_1 <= img_y_1 + 5;
                         end
                     end
-                    else begin
-                        if (tile_below || img_y >= 416) begin
-                            on_ground <= 1;
-                            if (img_y >= 416) img_y <= 416;
-                            else img_y <= (grid_below << 5) - 32;
-                        end else begin
-                            on_ground <= 0;
-                            img_y <= img_y + 5;
-                        end
-                    end
-                end
-                if (teleporting) teleporting <= 1'b0;
 
-                if (jumping_1) begin
-                    if (hitting_ceiling_1 || img_y_1 <= jump_start_y_1 - 64 || img_y_1 <= 10) begin
-                        jumping_1 <= 0;
-                    end else begin
-                        img_y_1 <= img_y_1 - 5;
-                    end
-                end 
-                else begin
-                    if (tile_below_1 || img_y_1 >= 416) begin
-                        on_ground_1 <= 1;
-                        if (img_y_1 >= 416) img_y_1 <= 416;
-                        else img_y_1 <= (grid_below_1 << 5) - 32;
-                    end else begin
-                        on_ground_1 <= 0;
-                        img_y_1 <= img_y_1 + 5;
-                    end
+                    // 冷卻時間倒數
+                    if (teleport_cd > 0) teleport_cd <= teleport_cd - 1;
                 end
 
+                // --- 跳躍觸發 (不受 move_en 限制以確保靈敏，或放進 move_en 皆可) ---
                 if (jstkData[1] && on_ground && !jumping) begin
                     jumping <= 1;
                     on_ground <= 0;
                     jump_start_y <= img_y;
                 end
-
                 if (jstkData_1[1] && on_ground_1 && !jumping_1) begin 
                     jumping_1 <= 1;
                     on_ground_1 <= 0;
                     jump_start_y_1 <= img_y_1;
                 end
 
-            end
+                // 重置傳送狀態標籤
+                if (teleporting) teleporting <= 1'b0;
 
+            end // end of PLAY/BOSS SCENE
         end
     end
-
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     //assign sndData = {8'b100000, {sw[6], sw[7]}};
 
