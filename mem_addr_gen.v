@@ -43,8 +43,8 @@ module mem_addr_gen(
     reg [9:0] x_s_1, y_s_1;
     always @(posedge vsync or posedge rst) begin
         if (rst) begin 
-            {x_s, y_s} <= {10'd32, 10'd320}; 
-            {x_s_1, y_s_1} <= {10'd32, 10'd416}; 
+            {x_s, y_s} <= {10'd32, 10'd256}; 
+            {x_s_1, y_s_1} <= {10'd32, 10'd416};
         end
         else begin
             {x_s, y_s} <= {img_x, img_y};
@@ -93,38 +93,38 @@ module mem_addr_gen(
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk, posedge rst) begin
         if (rst) begin 
-            map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
-            map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
-            map[2]  <= {20{T_EMPTY}};
-            map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[4]  <= {20{T_EMPTY}};
-            map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[6]  <= {20{T_EMPTY}};
-            map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
-            map[8]  <= {20{T_EMPTY}};
-            map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
-            map[12] <= {{15{T_EMPTY}}, T_EXIT};
-            map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-            map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            map[0]  <= {{9{T_WALL}}, {2{T_GOLD}}, {9{T_WALL}}};
+            map[1]  <= {T_WALL, T_GOLD, {6{T_EMPTY}}, T_GATE_2, {2{T_EMPTY}}, T_EMPTY, {4{T_EMPTY}}, T_EMPTY, T_EMPTY, T_EXIT, T_WALL}; 
+            map[2]  <= {T_WALL, {7{T_EMPTY}}, T_GATE_2, {7{T_EMPTY}}, T_WALL,T_WALL, T_EMPTY, T_WALL};
+            map[3]  <= {T_WALL, {7{T_EMPTY}}, {4{T_WALL}}, {7{T_EMPTY}}, T_WALL};
+            map[4]  <= {{2{T_WALL}}, {2{T_EMPTY}}, {3{T_WALL}}, {3{T_EMPTY}}, T_GATE_1, T_EMPTY, {3{T_EMPTY}}, T_WALL,T_PLATE_2, {2{T_EMPTY}}, T_WALL};
+            map[5]  <= {T_WALL, {6{T_EMPTY}}, T_WALL, T_PLATE_3, T_EMPTY, T_GATE_1, T_EMPTY, {7{T_EMPTY}}, T_WALL};
+            map[6]  <= {T_WALL, {9{T_EMPTY}}, {2{T_WALL}}, {2{T_EMPTY}}, T_PLATE_3, {2{T_EMPTY}}, T_WALL, T_EMPTY, T_WALL};
+            map[7] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+            map[8] <= {T_WALL, {2{T_EMPTY}}, {2{T_WALL}}, T_EMPTY, T_SPIKE, {9{T_EMPTY}}, T_WALL, {2{T_EMPTY}}, T_WALL};
+            map[9] <= {{5{T_WALL}}, T_GOLD, {2{T_WALL}}, T_PLATE_1, {11{T_WALL}}};
+            map[10] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_GATE_2, T_EMPTY, T_EXIT, T_WALL};
+            map[11] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_WALL, T_WALL, T_WALL, T_WALL};
+            map[12] <= {T_WALL, {3{T_EMPTY}}, {3{T_WALL}}, T_EMPTY, T_GATE_1, {5{T_EMPTY}}, T_WALL, T_EMPTY, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+            map[13] <= {T_WALL, {4{T_EMPTY}}, T_SPIKE, {2{T_EMPTY}}, T_GATE_1, {2{T_EMPTY}}, T_SPIKE, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+            map[14] <= {{10{T_WALL}}, T_PLATE_2, {7{T_WALL}}, T_PLATE_1, T_WALL};
         end else begin
             if (state == START_SCENE) begin
-                map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
-                map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
-                map[2]  <= {20{T_EMPTY}};
-                map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-                map[4]  <= {20{T_EMPTY}};
-                map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-                map[6]  <= {20{T_EMPTY}};
-                map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
-                map[8]  <= {20{T_EMPTY}};
-                map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
-                map[12] <= {{15{T_EMPTY}}, T_EXIT};
-                map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-                map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+                map[0]  <= {{9{T_WALL}}, {2{T_GOLD}}, {9{T_WALL}}};
+                map[1]  <= {T_WALL, T_GOLD, {6{T_EMPTY}}, T_GATE_2, {2{T_EMPTY}}, T_EMPTY, {4{T_EMPTY}}, T_EMPTY, T_EMPTY, T_EXIT, T_WALL}; 
+                map[2]  <= {T_WALL, {7{T_EMPTY}}, T_GATE_2, {7{T_EMPTY}}, T_WALL,T_WALL, T_EMPTY, T_WALL};
+                map[3]  <= {T_WALL, {7{T_EMPTY}}, {4{T_WALL}}, {7{T_EMPTY}}, T_WALL};
+                map[4]  <= {{2{T_WALL}}, {2{T_EMPTY}}, {3{T_WALL}}, {3{T_EMPTY}}, T_GATE_1, T_EMPTY, {3{T_EMPTY}}, T_WALL,T_PLATE_2, {2{T_EMPTY}}, T_WALL};
+                map[5]  <= {T_WALL, {6{T_EMPTY}}, T_WALL, T_PLATE_3, T_EMPTY, T_GATE_1, T_EMPTY, {7{T_EMPTY}}, T_WALL};
+                map[6]  <= {T_WALL, {9{T_EMPTY}}, {2{T_WALL}}, {2{T_EMPTY}}, T_PLATE_3, {2{T_EMPTY}}, T_WALL, T_EMPTY, T_WALL};
+                map[7] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                map[8] <= {T_WALL, {2{T_EMPTY}}, {2{T_WALL}}, T_EMPTY, T_SPIKE, {9{T_EMPTY}}, T_WALL, {2{T_EMPTY}}, T_WALL};
+                map[9] <= {{5{T_WALL}}, T_GOLD, {2{T_WALL}}, T_PLATE_1, {11{T_WALL}}};
+                map[10] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_GATE_2, T_EMPTY, T_EXIT, T_WALL};
+                map[11] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_WALL, T_WALL, T_WALL, T_WALL};
+                map[12] <= {T_WALL, {3{T_EMPTY}}, {3{T_WALL}}, T_EMPTY, T_GATE_1, {5{T_EMPTY}}, T_WALL, T_EMPTY, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+                map[13] <= {T_WALL, {4{T_EMPTY}}, T_SPIKE, {2{T_EMPTY}}, T_GATE_1, {2{T_EMPTY}}, T_SPIKE, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+                map[14] <= {{10{T_WALL}}, T_PLATE_2, {7{T_WALL}}, T_PLATE_1, T_WALL};
             end else if (state == PLAY_SCENE) begin 
                 if (map[img_y >> 5][(19-((img_x + 16) >> 5))*4 +: 4] == T_GOLD) begin 
                     map[img_y >> 5][(19-((img_x + 16) >> 5))*4 +: 4] <= T_WALL;
