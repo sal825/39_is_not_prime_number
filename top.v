@@ -452,7 +452,7 @@ module top(
     end
 
     wire [3:0] grid_top, grid_top_1;
-    reg [5:0] gold_number;
+    reg [2:0] gold_number;
     wire [4:0] grid_mid_x, grid_mid_x_1;
 
     // --- 2. 地圖主邏輯 ---
@@ -1016,14 +1016,13 @@ module top(
 
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin
-            data_out <= 4'd15; // 預設 15，Slave 就不會滅掉任何燈
+            data_out <= 4'd0; // 預設 15，Slave 就不會滅掉任何燈
         end else begin
-            if (state == BOSS_SCENE) begin
-                data_out <= 4'd14; // 發送代碼 14 給 Slave
-            end else if (state == PLAY_SCENE) begin
-                data_out <= 4'd1;  // 舉例：一般遊戲中發送 1
-            end else begin
-                data_out <= 4'd15; // 其他狀態不動作
+            if (state == PLAY_SCENE || state == BOSS_SCENE) begin 
+                data_out[3] <= 1;
+                data_out[2:0] <= gold_number;
+            end else begin 
+                data_out <= 4'd0;
             end
         end
     end
