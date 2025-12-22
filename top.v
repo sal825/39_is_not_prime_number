@@ -454,6 +454,7 @@ module top(
     wire [3:0] grid_top, grid_top_1;
     reg [2:0] gold_number;
     wire [4:0] grid_mid_x, grid_mid_x_1;
+    reg [2:0] best_gold; 
 
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk_25MHz or posedge rst) begin
@@ -473,6 +474,7 @@ module top(
             map[12] <= {{15{T_EMPTY}}, T_EXIT};
             map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
             map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            best_gold <= 0;
             gold_number <= 0;
         end else begin
             if (state == START_SCENE) begin
@@ -542,6 +544,8 @@ module top(
                     map[13][3:0] <= T_WALL;
                     map[13][79:76] <= T_WALL;
                 end
+            end else if(state == WIN_SCENE) begin
+                if (gold_number > best_gold) best_gold <= gold_number;
             end
         end
     end
