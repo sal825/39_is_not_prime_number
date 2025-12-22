@@ -29,6 +29,7 @@ module top(
     );
 
     reg [3:0] state, next_state;
+    
 
     localparam START_SCENE = 4'h0;
     localparam PLAY_SCENE = 4'h1;
@@ -451,8 +452,9 @@ module top(
     end
 
     wire [3:0] grid_top, grid_top_1;
-    reg [5:0] gold_number;
-    wire[4:0] grid_mid_x, grid_mid_x_1;
+    reg [2:0] gold_number;
+    wire [4:0] grid_mid_x, grid_mid_x_1;
+
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin 
@@ -471,6 +473,7 @@ module top(
             map[12] <= {{15{T_EMPTY}}, T_EXIT};
             map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
             map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            gold_number <= 0;
         end else begin
             if (state == START_SCENE) begin
                 map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
@@ -488,12 +491,15 @@ module top(
                 map[12] <= {{15{T_EMPTY}}, T_EXIT};
                 map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
                 map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+                gold_number <= 0;
             end else if (state == PLAY_SCENE) begin 
                 if (map[grid_top][(19-grid_mid_x)*4 +: 4] == T_GOLD) begin 
                     map[grid_top][(19-grid_mid_x)*4 +: 4] <= T_WALL;
+                    gold_number <= gold_number + 1;
                 end
                 if (map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] == T_GOLD) begin 
                     map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] <= T_WALL;
+                    gold_number <= gold_number + 1;
                 end
             end
             else if (state == BOSS_SCENE) begin
@@ -1006,14 +1012,13 @@ module top(
 
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin
-            data_out <= 4'd15; // 預設 15，Slave 就不會滅掉任何燈
+            data_out <= 4'd0; // 預設 15，Slave 就不會滅掉任何燈
         end else begin
-            if (state == BOSS_SCENE) begin
-                data_out <= 4'd14; // 發送代碼 14 給 Slave
-            end else if (state == PLAY_SCENE) begin
-                data_out <= 4'd1;  // 舉例：一般遊戲中發送 1
-            end else begin
-                data_out <= 4'd15; // 其他狀態不動作
+            if (state == PLAY_SCENE || state == BOSS_SCENE) begin 
+                data_out[3] <= 1;
+                data_out[2:0] <= gold_number;
+            end else begin 
+                data_out <= 4'd0;
             end
         end
     end
