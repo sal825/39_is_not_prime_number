@@ -71,41 +71,50 @@ module top(
     
     //MUSIC==========================================================================================
     // Internal Signal
-    wire [15:0] audio_in_left, audio_in_right;
-    reg [11:0] ibeatNum;    // 目前第幾拍 (0~4095)
-    reg en;                 // 音樂開關
-    wire [31:0] toneL, toneR;
-    wire [21:0] freq_outL = 50000000 / toneL;
-    wire [21:0] freq_outR = 50000000 / toneR;
     wire clk22;
     clock_divider #(.n(22)) clock_22(.clk(clk), .clk_div(clk22));    // for display
 
-    always @(posedge clk22 or posedge rst) begin
-        if (rst)
-            ibeatNum <= 0;
-        else begin
-            if (en == 0 || ibeatNum == 12'd1200) ibeatNum <= 12'd0;          // 播完一輪後重頭開始
-            else ibeatNum <= ibeatNum + 1;
+    // --- 音樂相關訊號修正 ---
+    wire [15:0] audio_in_left, audio_in_right;
+    reg [11:0] ibeatNum;
+    reg en_reg;               // 同步後的開關
+    wire [31:0] toneL, toneR;
+    
+    // 關鍵修正 1：將頻率輸出改為暫存器 (Pipelining)
+    reg [21:0] freq_outL_reg, freq_outR_reg;
+    
+    // 關鍵修正 2：音量與開關同步鎖存
+    reg [1:0] volume_reg;
+    always @(posedge clk) begin
+        if (rst) begin
+            volume_reg <= 2'b00;
+            en_reg <= 0;
+            freq_outL_reg <= 0;
+            freq_outR_reg <= 0;
+        end else begin
+            // 鎖存開關與音量，對齊 100MHz
+            en_reg <= (sw[0] || sw[1]);
+            volume_reg <= sw[1:0];
+            
+            // 鎖存除法結果，過濾組合邏輯雜訊
+            // 增加保護判斷：若 tone 為 0 則輸出 0 (靜音)
+            freq_outL_reg <= (toneL == 0) ? 22'd0 : (50000000 / toneL);
+            freq_outR_reg <= (toneR == 0) ? 22'd0 : (50000000 / toneR);
         end
     end
 
-    reg [1:0] volume;
-    always @(posedge clk_25MHz, posedge rst) begin//later 改
-        if (rst) begin
-            en <= 0;    // 按 reset 就開始播音樂
-            volume <= 2'b00;
-        end else begin
-            if (sw[0] || sw[1]) begin 
-                en <= 1;
-                volume <= sw[1:0];
-            end
-            else en <= 0;
+    // ibeatNum 維持在 clk22，但它是給 music ROM 用的，沒問題
+    always @(posedge clk22 or posedge rst) begin
+        if (rst) ibeatNum <= 0;
+        else begin
+            if (en_reg == 0 || ibeatNum == 12'd1200) ibeatNum <= 12'd0;
+            else ibeatNum <= ibeatNum + 1;
         end
     end
 
     music_wii music(
         .ibeatNum(ibeatNum),
-        .en(en),
+        .en(en_reg),
         .toneL(toneL),
         .toneR(toneR)
     );
@@ -113,9 +122,9 @@ module top(
     note_gen noteGen_00(
         .clk(clk), 
         .rst(rst), 
-        .volume(volume),
-        .note_div_left(freq_outL),
-        .note_div_right(freq_outR),
+        .volume(volume_reg),       // 使用同步後的音量
+        .note_div_left(freq_outL_reg), // 使用管線化後的頻率
+        .note_div_right(freq_outR_reg),
         .audio_left(audio_in_left),
         .audio_right(audio_in_right)
     );
@@ -428,14 +437,14 @@ module top(
     localparam T_EXIT  = 4'h9;
     localparam T_WALL  = 4'hA;
     // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
-    reg [24:0] shift_tick;
-    wire shift_en = (shift_tick == 25'd25_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
+    reg [31:0] shift_tick;
+    wire shift_en = (shift_tick == 32'd100_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
     reg [3:0] shift_tick_cnt;
 
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) shift_tick <= 0;
         else if (state == BOSS_SCENE) begin
-            if (shift_tick >= 25'd25_000_000) shift_tick <= 0;
+            if (shift_tick >= 32'd100_000_000) shift_tick <= 0;
             else shift_tick <= shift_tick + 1;
         end else shift_tick <= 0;
     end
@@ -482,38 +491,67 @@ module top(
                     map[0] <= {20{T_WALL}}; map[1] <= {20{T_WALL}}; map[2] <= {20{T_WALL}};
                     map[3] <= {20{T_WALL}}; map[4] <= {20{T_WALL}}; map[5] <= {20{T_WALL}};
                     map[6] <= {20{T_WALL}}; map[7] <= {20{T_WALL}}; map[8] <= {20{T_WALL}};
-                    map[9] <= {20{T_EMPTY}};
-                    map[10] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[9] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                    map[10] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
                     map[11] <= {20{T_WALL}};
-                    map[12] <= {20{T_EMPTY}};
-                    map[13] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[12] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                    map[13] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
                     map[14] <= {20{T_WALL}};
                 end 
-                else if (shift_en) begin // 關鍵修正：只有在 0.2 秒這一拍才移動
+                else if (shift_en) begin
                     // 向上排位移
-                    map[10][79:4] <= map[10][75:0];
-                    // 這裡用一個簡單的邏輯產生新尖刺：例如每 5 格產生一個
-                    map[10][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                    map[10][39:4] <= map[10][35:0];
+                    map[10][75:40] <= map[10][79:44];
+
+                    map[10][3:0] <= T_WALL;
+                    map[10][79:76] <= T_WALL;
+
+                    map[9][39:4] <= map[9][35:0];
+                    map[9][75:40] <= map[9][79:44];
+
+                    map[9][3:0] <= T_WALL;
+                    map[9][79:76] <= T_WALL;
+
+                    map[12][39:4] <= map[12][35:0];
+                    map[12][75:40] <= map[12][79:44];
+
+                    map[12][3:0] <= T_WALL;
+                    map[12][79:76] <= T_WALL;
 
                     // 向下排位移
-                    map[13][79:4] <= map[13][75:0];
-                    map[13][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                    map[13][39:4] <= map[13][35:0];
+                    map[13][75:40] <= map[13][79:44];
+
+                    map[13][3:0] <= T_WALL;
+                    map[13][79:76] <= T_WALL;
                 end
             end
         end
     end
 
-    reg [3:0] boss_kill = 0;
+    // --- 1. 修正 boss_kill 定義 ---
+    reg [4:0] boss_kill; // 改為 5-bit，才能存 0~16
     always @(posedge clk_25MHz or posedge rst) begin 
-        if (rst) begin 
+        if (rst) begin
             boss_kill <= 0;
-        end else begin 
+        end else begin
             if (state != BOSS_SCENE) boss_kill <= 0;
             else begin 
-                if (key_down_op && (last_change == KEY_CODE_MINUS || last_change == KEY_CODES_1)) boss_kill <= boss_kill + 1;
+                // 增加一個上限 16，防止加過頭
+                if (key_down_op && (last_change == 9'h4E || last_change == 9'h16) && boss_kill < 16) 
+                    boss_kill <= boss_kill + 1;
             end
         end
     end
+
+    // --- 2. 座標同步延遲 (對齊 BRAM 的 3 拍延遲) ---
+    reg [9:0] h_pipe [0:2], v_pipe [0:2];
+    always @(posedge clk_25MHz) begin
+        h_pipe[0] <= h_cnt; h_pipe[1] <= h_pipe[0]; h_pipe[2] <= h_pipe[1];
+        v_pipe[0] <= v_cnt; v_pipe[1] <= v_pipe[0]; v_pipe[2] <= v_pipe[1];
+    end
+    wire [9:0] h_sync = h_pipe[2];
+    wire [9:0] v_sync = v_pipe[2];
 
     // --- 多點碰撞偵測點 ---
     wire [9:0] char_L = img_x;
@@ -525,6 +563,9 @@ module top(
     wire [9:0] char_R_1 = img_x_1 + 31;
     wire [9:0] char_T_1 = img_y_1;
     wire [9:0] char_B_1 = img_y_1 + 31;
+
+    wire [4:0] grid_mid_x  = (char_L + 16) >> 5;
+    wire [4:0] grid_mid_x_1  = (char_L_1 + 16) >> 5;
 
     // 1. 垂直偵測：左腳(L+4)與右腳(R-4)
     wire [4:0] grid_L_foot = (char_L + 4) >> 5;
@@ -803,6 +844,9 @@ module top(
             end // end of PLAY/BOSS SCENE
         end
     end
+
+    wire lose_to_boss = (map[grid_mid_y][(19 - grid_mid_x)*4 +: 4] == T_WALL || map[grid_mid_y_1][(19 - grid_mid_x_1)*4 +: 4] == T_WALL);
+
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     //assign sndData = {8'b100000, {sw[6], sw[7]}};
 
@@ -831,6 +875,7 @@ module top(
     end
 
     // 顯示邏輯
+    reg [4:0] current_tile_idx;
     always @(*) begin
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
@@ -865,12 +910,25 @@ module top(
             end
         end else if (state == BOSS_SCENE) begin 
             if (show_pixel_sync) begin
+                // A. 先讀取底層顏色 (Boss 的照片)
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
-                if (boss_kill > 0 && boss_kill < 8) begin //一開始是全紅 好像也有延遲
-                    if (h_cnt < (80*boss_kill) && v_cnt < 128) vgaRed = 4'hF;
-                end else if (boss_kill >= 0) begin 
-                    if (h_cnt < (80*boss_kill) && v_cnt < 128) vgaRed = 4'hF;
-                    if (h_cnt < (80*(boss_kill - 8)) && v_cnt < 256) vgaRed = 4'hF;
+
+                // B. 計算當前座標屬於第幾隻 Boss (假設一排 8 隻，共兩排)
+                // 第一排: y < 128, 每格寬 80 (80*8=640)
+                // 第二排: 128 <= y < 256
+                if (v_sync < 256) begin
+                    // 計算當前像素屬於 0~15 哪一個索引
+                    // 使用 wire 輔助計算較清晰
+                    //reg [4:0] current_tile_idx;
+                    current_tile_idx = (h_sync / 80) + (v_sync >= 128 ? 8 : 0);
+
+                    // 如果這隻已經被殺掉 (index < boss_kill)，蓋上紅色
+                    if (current_tile_idx < boss_kill) begin
+                        vgaRed = 4'hF; 
+                        // 如果想保留 Boss 輪廓但變紅，可以只改 R，或是讓 G, B 變暗
+                        // vgaGreen = vgaGreen >> 2; 
+                        // vgaBlue = vgaBlue >> 2;
+                    end
                 end
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
@@ -924,6 +982,9 @@ module top(
             if (btnR_op) next_state = START_SCENE;
         end else if (state == WIN_SCENE) begin 
             if (btnR_op) next_state = START_SCENE;
+        end else if (state == BOSS_SCENE) begin 
+            if (boss_kill == 16) next_state = WIN_SCENE;
+            if (lose_to_boss) next_state = LOSE_SCENE;
         end
     end
 
