@@ -65,7 +65,7 @@ module note_gen(
             2'b00: amplitude = 16'h0;
             2'b01: amplitude = 16'h0300;
             2'b11: amplitude = 16'h0500;
-            2'b10: amplitude = 16'h1000;
+            2'b10: amplitude = 16'h5000;
             default: amplitude = 16'h0000;
         endcase
 

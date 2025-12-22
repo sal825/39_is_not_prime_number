@@ -89,7 +89,7 @@ module top(
     
     reg [31:0] toneL_stable, toneR_stable;
 
-    always @(posedge clk) begin
+    always @(posedge clk, posedge rst) begin
         if (rst) begin
             toneL_stable <= 0;
             toneR_stable <= 0;
@@ -112,7 +112,7 @@ module top(
         end
     end
     // ibeatNum 維持在 clk22，但它是給 music ROM 用的，沒問題
-    always @(posedge clk22 or posedge rst) begin
+    always @(posedge clk22, posedge rst) begin
         if (rst) ibeatNum <= 0;
         else begin
             if (en_reg == 0 || ibeatNum == 12'd1200) ibeatNum <= 12'd0;
@@ -167,7 +167,7 @@ module top(
     reg face_left, face_left_1; 
 
     // --- 動畫幀計數邏輯 ---
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin
             cnt <= 0;
             frame_idx <= 0;
@@ -197,7 +197,7 @@ module top(
         end
     end
 
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin
             cnt_1 <= 0;
             frame_idx_1 <= 0;
@@ -450,7 +450,7 @@ module top(
     wire shift_en = (shift_tick == 32'd100_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
     reg [3:0] shift_tick_cnt;
 
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) shift_tick <= 0;
         else if (state == BOSS_SCENE) begin
             if (shift_tick >= 32'd100_000_000) shift_tick <= 0;
@@ -463,43 +463,43 @@ module top(
     wire [4:0] grid_mid_x, grid_mid_x_1;
     reg [2:0] best_gold; 
 
-    // --- 2. 地圖主邏輯 ---
-    always @(posedge clk_25MHz or posedge rst) begin
+    // --- 2. 地圖主邏輯 --- 1 red 2 green 3 blue
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin 
-            map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
-            map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
-            map[2]  <= {20{T_EMPTY}};
-            map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[4]  <= {20{T_EMPTY}};
-            map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[6]  <= {20{T_EMPTY}};
-            map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
-            map[8]  <= {20{T_EMPTY}};
-            map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
-            map[12] <= {{15{T_EMPTY}}, T_EXIT};
-            map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-            map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            map[0]  <= {{9{T_WALL}}, {2{T_GOLD}}, {9{T_WALL}}};
+            map[1]  <= {T_WALL, T_GOLD, {6{T_EMPTY}}, T_GATE_2, {2{T_EMPTY}}, T_EMPTY, {4{T_EMPTY}}, T_EMPTY, T_EMPTY, T_EXIT, T_WALL}; 
+            map[2]  <= {T_WALL, {7{T_EMPTY}}, T_GATE_2, {7{T_EMPTY}}, T_WALL,T_WALL, T_EMPTY, T_WALL};
+            map[3]  <= {T_WALL, {7{T_EMPTY}}, {4{T_WALL}}, {7{T_EMPTY}}, T_WALL};
+            map[4]  <= {{2{T_WALL}}, {2{T_EMPTY}}, {3{T_WALL}}, {3{T_EMPTY}}, T_GATE_1, T_EMPTY, {3{T_EMPTY}}, T_WALL,T_PLATE_2, {2{T_EMPTY}}, T_WALL};
+            map[5]  <= {T_WALL, {6{T_EMPTY}}, T_WALL, T_PLATE_3, T_EMPTY, T_GATE_1, T_EMPTY, {7{T_EMPTY}}, T_WALL};
+            map[6]  <= {T_WALL, {9{T_EMPTY}}, {2{T_WALL}}, {2{T_EMPTY}}, T_PLATE_3, {2{T_EMPTY}}, T_WALL, T_EMPTY, T_WALL};
+            map[7] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+            map[8] <= {T_WALL, {2{T_EMPTY}}, {2{T_WALL}}, T_EMPTY, T_SPIKE, {9{T_EMPTY}}, T_WALL, {2{T_EMPTY}}, T_WALL};
+            map[9] <= {{5{T_WALL}}, T_GOLD, {2{T_WALL}}, T_PLATE_1, {11{T_WALL}}};
+            map[10] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_GATE_2, T_EMPTY, T_EXIT, T_WALL};
+            map[11] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_WALL, T_WALL, T_WALL, T_WALL};
+            map[12] <= {T_WALL, {3{T_EMPTY}}, {3{T_WALL}}, T_EMPTY, T_GATE_1, {5{T_EMPTY}}, T_WALL, T_EMPTY, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+            map[13] <= {T_WALL, {4{T_EMPTY}}, T_SPIKE, {2{T_EMPTY}}, T_GATE_1, {2{T_EMPTY}}, T_SPIKE, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+            map[14] <= {{10{T_WALL}}, T_PLATE_2, {7{T_WALL}}, T_PLATE_1, T_WALL};
             best_gold <= 0;
             gold_number <= 0;
         end else begin
             if (state == START_SCENE) begin
-                map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
-                map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
-                map[2]  <= {20{T_EMPTY}};
-                map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-                map[4]  <= {20{T_EMPTY}};
-                map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
-                map[6]  <= {20{T_EMPTY}};
-                map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
-                map[8]  <= {20{T_EMPTY}};
-                map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
-                map[12] <= {{15{T_EMPTY}}, T_EXIT};
-                map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-                map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+                map[0]  <= {{9{T_WALL}}, {2{T_GOLD}}, {9{T_WALL}}};
+                map[1]  <= {T_WALL, T_GOLD, {6{T_EMPTY}}, T_GATE_2, {2{T_EMPTY}}, T_EMPTY, {4{T_EMPTY}}, T_EMPTY, T_EMPTY, T_EXIT, T_WALL}; 
+                map[2]  <= {T_WALL, {7{T_EMPTY}}, T_GATE_2, {7{T_EMPTY}}, T_WALL,T_WALL, T_EMPTY, T_WALL};
+                map[3]  <= {T_WALL, {7{T_EMPTY}}, {4{T_WALL}}, {7{T_EMPTY}}, T_WALL};
+                map[4]  <= {{2{T_WALL}}, {2{T_EMPTY}}, {3{T_WALL}}, {3{T_EMPTY}}, T_GATE_1, T_EMPTY, {3{T_EMPTY}}, T_WALL,T_PLATE_2, {2{T_EMPTY}}, T_WALL};
+                map[5]  <= {T_WALL, {6{T_EMPTY}}, T_WALL, T_PLATE_3, T_EMPTY, T_GATE_1, T_EMPTY, {7{T_EMPTY}}, T_WALL};
+                map[6]  <= {T_WALL, {9{T_EMPTY}}, {2{T_WALL}}, {2{T_EMPTY}}, T_PLATE_3, {2{T_EMPTY}}, T_WALL, T_EMPTY, T_WALL};
+                map[7] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                map[8] <= {T_WALL, {2{T_EMPTY}}, {2{T_WALL}}, T_EMPTY, T_SPIKE, {9{T_EMPTY}}, T_WALL, {2{T_EMPTY}}, T_WALL};
+                map[9] <= {{5{T_WALL}}, T_GOLD, {2{T_WALL}}, T_PLATE_1, {11{T_WALL}}};
+                map[10] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_GATE_2, T_EMPTY, T_EXIT, T_WALL};
+                map[11] <= {T_WALL, {7{T_EMPTY}}, T_GATE_1, {7{T_EMPTY}}, T_WALL, T_WALL, T_WALL, T_WALL};
+                map[12] <= {T_WALL, {3{T_EMPTY}}, {3{T_WALL}}, T_EMPTY, T_GATE_1, {5{T_EMPTY}}, T_WALL, T_EMPTY, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+                map[13] <= {T_WALL, {4{T_EMPTY}}, T_SPIKE, {2{T_EMPTY}}, T_GATE_1, {2{T_EMPTY}}, T_SPIKE, {4{T_EMPTY}}, T_GATE_3, {2{T_EMPTY}}, T_WALL};
+                map[14] <= {{10{T_WALL}}, T_PLATE_2, {7{T_WALL}}, T_PLATE_1, T_WALL};
                 gold_number <= 0;
             end else if (state == PLAY_SCENE) begin 
                 if (map[grid_top][(19-grid_mid_x)*4 +: 4] == T_GOLD) begin 
@@ -559,7 +559,7 @@ module top(
 
     // --- 1. 修正 boss_kill 定義 ---
     reg [4:0] boss_kill; // 改為 5-bit，才能存 0~16
-    always @(posedge clk_25MHz or posedge rst) begin 
+    always @(posedge clk_25MHz, posedge rst) begin 
         if (rst) begin
             boss_kill <= 0;
         end else begin
@@ -692,7 +692,7 @@ module top(
     reg [22:0] tick_cnt;
     wire move_en; // 這是我們邏輯的觸發開關
 
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin
             tick_cnt <= 0;
         end else begin
@@ -732,9 +732,9 @@ module top(
     // always @(posedge clk_25MHz) move_cnt <= (move_en)? 0 : move_cnt + 1;
     reg [9:0] fail_x, fail_y; // 記錄失敗位置的像素座標
     reg [4:0] fail_flash_cnt;
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin
-            img_x <= 10'd32;      img_y <= 10'd320;
+            img_x <= 10'd32;      img_y <= 10'd256;
             img_x_1 <= 10'd32;    img_y_1 <= 10'd416;
             jumping <= 0;         jumping_1 <= 0;
             on_ground <= 1;       on_ground_1 <= 1;
@@ -747,7 +747,7 @@ module top(
         end else begin
             // --- 立即判斷狀態切換 (START/BOSS Reset) ---
             if (state == START_SCENE || (state == BOSS_SCENE && boss_sec <= 1)) begin 
-                img_x <= 10'd32;      img_y <= 10'd320;
+                img_x <= 10'd32;      img_y <= (state == START_SCENE)? 10'd256 : 10'd320;
                 img_x_1 <= 10'd32;    img_y_1 <= 10'd416;
                 jumping <= 0;         jumping_1 <= 0;
                 on_ground <= 1;       on_ground_1 <= 1;
@@ -906,22 +906,22 @@ module top(
     // Data to be sent to PmodJSTK, lower two bits will turn on leds on PmodJSTK
     //assign sndData = {8'b100000, {sw[6], sw[7]}};
 
-    always @(sndRec or rst or jstkData) begin
-            if(rst == 1'b1) begin
-                LED <= 3'b000;
-            end
-            else begin
-                case(best_gold)
-                    3'd0: LED = 16'b0000_0000_0000_0000;
-                    3'd1: LED = 16'b1000_0000_0000_0000;
-                    3'd2: LED = 16'b1100_0000_0000_0000;
-                    3'd3: LED = 16'b1110_0000_0000_0000;
-                    3'd4: LED = 16'b1111_0000_0000_0000;
-                    3'd5: LED = 16'b1111_1000_0000_0000;
-                    3'd6: LED = 16'b1111_1100_0000_0000;
-                    3'd7: LED = 16'b1111_1110_0000_0000;
-                endcase
-            end
+    always @(posedge sndRec, posedge rst) begin
+        if(rst == 1'b1) begin
+            LED <= 3'b000;
+        end
+        else begin
+            case(best_gold)
+                3'd0: LED = 16'b0000_0000_0000_0000;
+                3'd1: LED = 16'b1000_0000_0000_0000;
+                3'd2: LED = 16'b1100_0000_0000_0000;
+                3'd3: LED = 16'b1110_0000_0000_0000;
+                3'd4: LED = 16'b1111_0000_0000_0000;
+                3'd5: LED = 16'b1111_1000_0000_0000;
+                3'd6: LED = 16'b1111_1100_0000_0000;
+                3'd7: LED = 16'b1111_1110_0000_0000;
+            endcase
+        end
     end
 
     
@@ -1035,7 +1035,7 @@ module top(
             if (btnR_op) next_state = PLAY_SCENE;
         end else if (state == PLAY_SCENE) begin
             if (step_on_spike) next_state = LOSE_SCENE;
-            if (win_now) next_state = BOSS_SCENE;
+            if (win_now || btnR_op) next_state = BOSS_SCENE;
         end else if (state == LOSE_SCENE) begin
             if (btnR_op) next_state = START_SCENE;
         end else if (state == WIN_SCENE) begin 
@@ -1046,7 +1046,7 @@ module top(
         end
     end
 
-    always @(posedge clk_25MHz or posedge rst) begin
+    always @(posedge clk_25MHz, posedge rst) begin
         if (rst) begin
             data_out <= 4'd0; // 預設 15，Slave 就不會滅掉任何燈
         end else begin
