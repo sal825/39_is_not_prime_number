@@ -452,7 +452,7 @@ module top(
 
     wire [3:0] grid_top, grid_top_1;
     reg [5:0] gold_number;
-
+    wire[4:0] grid_mid_x, grid_mid_x_1;
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin 
@@ -576,8 +576,8 @@ module top(
     wire [9:0] char_T_1 = img_y_1;
     wire [9:0] char_B_1 = img_y_1 + 31;
 
-    wire [4:0] grid_mid_x  = (char_L + 16) >> 5;
-    wire [4:0] grid_mid_x_1  = (char_L_1 + 16) >> 5;
+    assign grid_mid_x  = (char_L + 16) >> 5;
+    assign grid_mid_x_1  = (char_L_1 + 16) >> 5;
 
     assign grid_top = char_T >> 5;
     assign grid_top_1 = char_T_1 >> 5;
@@ -706,7 +706,7 @@ module top(
     wire [9:0] abs_target_x = cursor_x << 5;
     wire [9:0] abs_target_y = cursor_y << 5;
     // 地圖碰撞檢查
-    assign target_tile_id = map[cursor_y][ cursor_x*4 +: 4];
+    assign target_tile_id = map[cursor_y][(19-cursor_x)*4 +: 4];
     reg teleporting;
     // --- 跳躍與移動邏輯 (保持不變) ---
     // 請確保在 top 模組中有定義 move_en
@@ -726,6 +726,7 @@ module top(
             skill_mode <= 0;      teleporting <= 1'b0;
             cursor_x <= 0;        cursor_y <= 0;
             q_prev <= 1'b0;       enter_prev <= 1'b0;
+            fail_flash_cnt <= 5'd0;
         end else begin
             // --- 立即判斷狀態切換 (START/BOSS Reset) ---
             if (state == START_SCENE || (state == BOSS_SCENE && boss_sec <= 1)) begin 
@@ -736,7 +737,10 @@ module top(
                 face_left <= 0;       face_left_1 <= 0;
                 teleport_cd <= 24'd0; skill_mode <= 0;
                 teleporting <= 1'b0;
-            end 
+                fail_flash_cnt <= 5'd0;
+            end else if (fail_flash_cnt > 0) begin
+                fail_flash_cnt <= fail_flash_cnt - 1;//紅色框顯示時間
+            end
             else if (state == PLAY_SCENE || state == BOSS_SCENE) begin
 
                 // ============================================================
@@ -753,7 +757,7 @@ module top(
 
                 // 2. Enter 確定瞬移 (角色 0)
                 if (skill_mode && key_down[KEY_CODES_ENTER] && !enter_prev) begin
-                    if (target_tile_id ==T_EMPTY && on_ground) begin
+                    if (target_tile_id == T_EMPTY && on_ground) begin
                         img_x <= cursor_x << 5;
                         img_y <= cursor_y << 5;
                         jumping <= 0;
@@ -791,8 +795,13 @@ module top(
                     if (skill_mode) begin
                         if (key_down[KEY_CODES_A] && cursor_x > 0)  cursor_x <= cursor_x - 1;
                         if (key_down[KEY_CODES_D] && cursor_x < 19) cursor_x <= cursor_x + 1;
-                        if (key_down[KEY_CODES_W] && cursor_y > (img_y >> 5))  cursor_y <= cursor_y - 1;
-                        if (key_down[KEY_CODES_S] && cursor_y < (img_y >> 5)+3) cursor_y <= cursor_y + 1;
+                        // 向上移動：除了限制在角色上方 3 格，還要確保不小於 0
+                        if (key_down[KEY_CODES_W] && cursor_y > 0 && cursor_y > (img_y >> 5) - 3) 
+                            cursor_y <= cursor_y - 1;
+
+                        // 向下移動：除了限制在角色下方 3 格，還要確保不超過地圖底部的 14 格
+                        if (key_down[KEY_CODES_S] && cursor_y < 14 && cursor_y < (img_y >> 5) + 3) 
+                            cursor_y <= cursor_y + 1;
                     end
 
                     // --- 角色 0 走路與重力 ---
@@ -897,10 +906,7 @@ module top(
 
     //瞬移錯誤的紅色提示
     reg [4:0] current_tile_idx;
-    always @(posedge clk_25MHz or posedge rst) begin
-        if (rst) fail_flash_cnt <= 0;
-        else if (fail_flash_cnt > 0) fail_flash_cnt <= fail_flash_cnt - 1;
-    end
+    
 
 
     always @(*) begin
