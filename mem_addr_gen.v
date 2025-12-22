@@ -76,6 +76,7 @@ module mem_addr_gen(
     localparam T_PLATE_3 = 4'h8;
     localparam T_EXIT  = 4'h9;
     localparam T_WALL  = 4'hA;
+    localparam T_GOLD = 4'hB;
     // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
     reg [31:0] shift_tick;
     wire shift_en = (shift_tick == 32'd100_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
@@ -99,16 +100,16 @@ module mem_addr_gen(
             map[4]  <= {20{T_EMPTY}};
             map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
             map[6]  <= {20{T_EMPTY}};
-            map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
             map[8]  <= {20{T_EMPTY}};
             map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
             map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+            map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
             map[12] <= {{15{T_EMPTY}}, T_EXIT};
             map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
             map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
         end else begin
-            if (next_state == PLAY_SCENE) begin
+            if (state == START_SCENE) begin
                 map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
                 map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
                 map[2]  <= {20{T_EMPTY}};
@@ -116,15 +117,22 @@ module mem_addr_gen(
                 map[4]  <= {20{T_EMPTY}};
                 map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
                 map[6]  <= {20{T_EMPTY}};
-                map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
                 map[8]  <= {20{T_EMPTY}};
                 map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
                 map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+                map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
                 map[12] <= {{15{T_EMPTY}}, T_EXIT};
                 map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
                 map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
-            end 
+            end else if (state == PLAY_SCENE) begin 
+                if (map[img_y >> 5][(19-((img_x + 16) >> 5))*4 +: 4] == T_GOLD) begin 
+                    map[img_y >> 5][(19-((img_x + 16) >> 5))*4 +: 4] <= T_WALL;
+                end
+                if (map[img_y_1 >> 5][(19-((img_x_1 + 16) >> 5))*4 +: 4] == T_GOLD) begin 
+                    map[img_y_1 >> 5][(19-((img_x_1 + 16) >> 5))*4 +: 4] <= T_WALL;
+                end
+            end
             else if (next_state == BOSS_SCENE) begin
                 if (boss_sec <= 1) begin
                     // 初始化 BOSS 房間
@@ -177,6 +185,7 @@ module mem_addr_gen(
     wire is_tile = (current_tile_id == T_WALL) || 
                    (current_tile_id == T_SPIKE && spike_on) || 
                    (current_tile_id == T_SPIKE_L) ||
+                   (current_tile_id == T_GOLD) ||
                    (current_tile_id == T_EXIT) || 
                    (current_tile_id == T_PLATE_1) ||
                    (current_tile_id == T_PLATE_2) ||
@@ -298,6 +307,7 @@ module mem_addr_gen(
                     T_GATE_3:  b_off = 12288;
                     T_SPIKE: b_off = 23552;
                     T_SPIKE_L: b_off = 63616;
+                    T_GOLD: b_off = 64640;
                     default: b_off = 0;
                 endcase
             end 
