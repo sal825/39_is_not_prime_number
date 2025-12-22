@@ -436,6 +436,7 @@ module top(
     localparam T_PLATE_3 = 4'h8;
     localparam T_EXIT  = 4'h9;
     localparam T_WALL  = 4'hA;
+    localparam T_GOLD = 4'hB;
     // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
     reg [31:0] shift_tick;
     wire shift_en = (shift_tick == 32'd100_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
@@ -449,6 +450,9 @@ module top(
         end else shift_tick <= 0;
     end
 
+    wire [3:0] grid_top, grid_top_1;
+    reg [5:0] gold_number;
+
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk_25MHz or posedge rst) begin
         if (rst) begin 
@@ -459,16 +463,16 @@ module top(
             map[4]  <= {20{T_EMPTY}};
             map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
             map[6]  <= {20{T_EMPTY}};
-            map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
             map[8]  <= {20{T_EMPTY}};
             map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
             map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+            map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
             map[12] <= {{15{T_EMPTY}}, T_EXIT};
             map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
             map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
         end else begin
-            if (next_state == PLAY_SCENE) begin
+            if (state == START_SCENE) begin
                 map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
                 map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
                 map[2]  <= {20{T_EMPTY}};
@@ -476,16 +480,23 @@ module top(
                 map[4]  <= {20{T_EMPTY}};
                 map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
                 map[6]  <= {20{T_EMPTY}};
-                map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[7]  <= {{8{T_GOLD}}, {8{T_WALL}}, {10{T_EMPTY}}};
                 map[8]  <= {20{T_EMPTY}};
                 map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
                 map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-                map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+                map[11] <= {T_WALL, T_GOLD, {3{T_PLATE_1}}, {15{T_WALL}}};
                 map[12] <= {{15{T_EMPTY}}, T_EXIT};
                 map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
                 map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
-            end 
-            else if (next_state == BOSS_SCENE) begin
+            end else if (state == PLAY_SCENE) begin 
+                if (map[grid_top][(19-grid_mid_x)*4 +: 4] == T_GOLD) begin 
+                    map[grid_top][(19-grid_mid_x)*4 +: 4] <= T_WALL;
+                end
+                if (map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] == T_GOLD) begin 
+                    map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] <= T_WALL;
+                end
+            end
+            else if (state == BOSS_SCENE) begin
                 if (boss_sec <= 1) begin
                     // 初始化 BOSS 房間
                     map[0] <= {20{T_WALL}}; map[1] <= {20{T_WALL}}; map[2] <= {20{T_WALL}};
@@ -553,6 +564,7 @@ module top(
     wire [9:0] h_sync = h_pipe[2];
     wire [9:0] v_sync = v_pipe[2];
 
+
     // --- 多點碰撞偵測點 ---
     wire [9:0] char_L = img_x;
     wire [9:0] char_R = img_x + 31;
@@ -566,6 +578,9 @@ module top(
 
     wire [4:0] grid_mid_x  = (char_L + 16) >> 5;
     wire [4:0] grid_mid_x_1  = (char_L_1 + 16) >> 5;
+
+    assign grid_top = char_T >> 5;
+    assign grid_top_1 = char_T_1 >> 5;
 
     // 1. 垂直偵測：左腳(L+4)與右腳(R-4)
     wire [4:0] grid_L_foot = (char_L + 4) >> 5;
@@ -969,25 +984,6 @@ module top(
         end
     end
         
-    // reg [2:0] lose_sec;
-    // reg [31:0] cnt_lose;
-    // always @(posedge clk, posedge rst) begin
-    //     if (rst) begin
-    //         lose_sec <= 0;
-    //         cnt_lose <= 0;
-    //     end else begin
-    //         if (state == LOSE_SCENE) begin 
-    //             cnt_lose <= cnt_lose + 1;
-    //             if (cnt_lose >= 100000000) begin 
-    //                 cnt_lose <= 0;
-    //                 lose_sec <= lose_sec + 1;
-    //             end
-    //         end else begin 
-    //             lose_sec <= 0;
-    //             cnt_lose <= 0;
-    //         end
-    //     end
-    // end
     
     always @(*) begin
         next_state = state; 
@@ -1033,5 +1029,6 @@ endmodule
 //48578 lose 80*60 (43776-48575)
 //53378 win 80*60 (48576-53375)
 //63618 boss 80*128 (53376-63615)
-//64642 spike_left 32*32 (63616-64639);
+//64642 spike_left 32*32 (63616-64639)
+//65666 gold 32*32 (64640-65663)
 //角色32*32
