@@ -77,14 +77,14 @@ module mem_addr_gen(
     localparam T_EXIT  = 4'h9;
     localparam T_WALL  = 4'hA;
     // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
-    reg [24:0] shift_tick;
-    wire shift_en = (shift_tick == 25'd25_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
+    reg [31:0] shift_tick;
+    wire shift_en = (shift_tick == 32'd100_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
     reg [3:0] shift_tick_cnt;
 
-    always @(posedge clk, posedge rst) begin
+    always @(posedge clk or posedge rst) begin
         if (rst) shift_tick <= 0;
         else if (state == BOSS_SCENE) begin
-            if (shift_tick >= 25'd25_000_000) shift_tick <= 0;
+            if (shift_tick >= 32'd100_000_000) shift_tick <= 0;
             else shift_tick <= shift_tick + 1;
         end else shift_tick <= 0;
     end
@@ -131,22 +131,39 @@ module mem_addr_gen(
                     map[0] <= {20{T_WALL}}; map[1] <= {20{T_WALL}}; map[2] <= {20{T_WALL}};
                     map[3] <= {20{T_WALL}}; map[4] <= {20{T_WALL}}; map[5] <= {20{T_WALL}};
                     map[6] <= {20{T_WALL}}; map[7] <= {20{T_WALL}}; map[8] <= {20{T_WALL}};
-                    map[9] <= {20{T_EMPTY}};
-                    map[10] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[9] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                    map[10] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
                     map[11] <= {20{T_WALL}};
-                    map[12] <= {20{T_EMPTY}};
-                    map[13] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[12] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
+                    map[13] <= {T_WALL, {18{T_EMPTY}}, T_WALL};
                     map[14] <= {20{T_WALL}};
                 end 
-                else if (shift_en) begin // 關鍵修正：只有在 0.2 秒這一拍才移動
+                else if (shift_en) begin
                     // 向上排位移
-                    map[10][79:4] <= map[10][75:0];
-                    // 這裡用一個簡單的邏輯產生新尖刺：例如每 5 格產生一個
-                    map[10][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                    map[10][39:4] <= map[10][35:0];
+                    map[10][75:40] <= map[10][79:44];
+
+                    map[10][3:0] <= T_WALL;
+                    map[10][79:76] <= T_WALL;
+
+                    map[9][39:4] <= map[9][35:0];
+                    map[9][75:40] <= map[9][79:44];
+
+                    map[9][3:0] <= T_WALL;
+                    map[9][79:76] <= T_WALL;
+
+                    map[12][39:4] <= map[12][35:0];
+                    map[12][75:40] <= map[12][79:44];
+
+                    map[12][3:0] <= T_WALL;
+                    map[12][79:76] <= T_WALL;
 
                     // 向下排位移
-                    map[13][79:4] <= map[13][75:0];
-                    map[13][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                    map[13][39:4] <= map[13][35:0];
+                    map[13][75:40] <= map[13][79:44];
+
+                    map[13][3:0] <= T_WALL;
+                    map[13][79:76] <= T_WALL;
                 end
             end
         end
