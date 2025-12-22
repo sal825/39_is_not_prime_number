@@ -29,6 +29,7 @@ module top(
     );
 
     reg [3:0] state, next_state;
+    
 
     localparam START_SCENE = 4'h0;
     localparam PLAY_SCENE = 4'h1;
@@ -452,6 +453,7 @@ module top(
 
     wire [3:0] grid_top, grid_top_1;
     reg [5:0] gold_number;
+    wire [4:0] grid_mid_x, grid_mid_x_1;
 
     // --- 2. 地圖主邏輯 ---
     always @(posedge clk_25MHz or posedge rst) begin
@@ -471,6 +473,7 @@ module top(
             map[12] <= {{15{T_EMPTY}}, T_EXIT};
             map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
             map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            gold_number <= 0;
         end else begin
             if (state == START_SCENE) begin
                 map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
@@ -488,12 +491,15 @@ module top(
                 map[12] <= {{15{T_EMPTY}}, T_EXIT};
                 map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
                 map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+                gold_number <= 0;
             end else if (state == PLAY_SCENE) begin 
                 if (map[grid_top][(19-grid_mid_x)*4 +: 4] == T_GOLD) begin 
                     map[grid_top][(19-grid_mid_x)*4 +: 4] <= T_WALL;
+                    gold_number <= gold_number + 1;
                 end
                 if (map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] == T_GOLD) begin 
                     map[grid_top_1][(19-grid_mid_x_1)*4 +: 4] <= T_WALL;
+                    gold_number <= gold_number + 1;
                 end
             end
             else if (state == BOSS_SCENE) begin
@@ -576,8 +582,8 @@ module top(
     wire [9:0] char_T_1 = img_y_1;
     wire [9:0] char_B_1 = img_y_1 + 31;
 
-    wire [4:0] grid_mid_x  = (char_L + 16) >> 5;
-    wire [4:0] grid_mid_x_1  = (char_L_1 + 16) >> 5;
+    assign grid_mid_x  = (char_L + 16) >> 5;
+    assign grid_mid_x_1  = (char_L_1 + 16) >> 5;
 
     assign grid_top = char_T >> 5;
     assign grid_top_1 = char_T_1 >> 5;
