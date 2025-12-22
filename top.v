@@ -910,27 +910,33 @@ module top(
 
 
     always @(*) begin
+        // 預設顏色 (黑色)
+        {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end
+        // --- 優先權 1：瞬移失敗紅框 (對齊 sync 座標) ---
         else if (fail_flash_cnt > 0 && 
-                ((h_cnt - 2) >= fail_x) && ((h_cnt - 2) < (fail_x + 32)) &&
-                (v_cnt >= fail_y) && (v_cnt < (fail_y + 32))) 
+                (h_sync >= fail_x) && (h_sync < (fail_x + 32)) &&
+                (v_sync >= fail_y) && (v_sync < (fail_y + 32))) 
         begin
             {vgaRed, vgaGreen, vgaBlue} = 12'hF00; // 純紅色
         end
+        // --- 優先權 2：Q 技能選取白框 ---
         else if (skill_mode && 
-                ((h_cnt - 2) >= abs_target_x) && ((h_cnt - 2) < (abs_target_x + 32)) &&
-                (v_cnt >= abs_target_y) && (v_cnt < (abs_target_y + 32))) 
+                (h_sync >= abs_target_x) && (h_sync < (abs_target_x + 32)) &&
+                (v_sync >= abs_target_y) && (v_sync < (abs_target_y + 32))) 
         begin
             {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; // 純白色
         end
+        // --- 優先權 3：場景邏輯 ---
         else if (state == PLAY_SCENE) begin
-            
             if (show_pixel_sync) begin
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
+                // 處理 Plate/Gate/Spike 變色邏輯
                 if (!is_char_sync && !is_char_sync_1) begin
-                    if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin //這個也要延遲三拍
+                    if (current_id_sync == T_PLATE_1 || current_id_sync == T_GATE_1) begin
                         if (current_id_sync == T_GATE_1 && gate_open[4]) {vgaRed, vgaGreen, vgaBlue} = 12'h000;
                         else vgaRed = 4'hF;
                     end else if (current_id_sync == T_PLATE_2 || current_id_sync == T_GATE_2) begin 
@@ -947,32 +953,22 @@ module top(
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
-        end else if (state == BOSS_SCENE) begin 
+        end 
+        else if (state == BOSS_SCENE) begin 
             if (show_pixel_sync) begin
-                // A. 先讀取底層顏色 (Boss 的照片)
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
-
-                // B. 計算當前座標屬於第幾隻 Boss (假設一排 8 隻，共兩排)
-                // 第一排: y < 128, 每格寬 80 (80*8=640)
-                // 第二排: 128 <= y < 256
                 if (v_sync < 256) begin
-                    // 計算當前像素屬於 0~15 哪一個索引
-                    // 使用 wire 輔助計算較清晰
-                    //reg [4:0] current_tile_idx;
                     current_tile_idx = (h_sync / 80) + (v_sync >= 128 ? 8 : 0);
-
-                    // 如果這隻已經被殺掉 (index < boss_kill)，蓋上紅色
                     if (current_tile_idx < boss_kill) begin
                         vgaRed = 4'hF; 
-                        // 如果想保留 Boss 輪廓但變紅，可以只改 R，或是讓 G, B 變暗
-                        // vgaGreen = vgaGreen >> 2; 
-                        // vgaBlue = vgaBlue >> 2;
                     end
                 end
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
-        end else begin 
+        end 
+        else begin 
+            // START_SCENE 或其他
             {vgaRed, vgaGreen, vgaBlue} = pixel;
         end
     end
