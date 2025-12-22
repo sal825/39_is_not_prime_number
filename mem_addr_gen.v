@@ -18,6 +18,7 @@ module mem_addr_gen(
     input [3:0] state,
     input spike_on,
     input [3:0] next_state,
+    input [9:0] boss_sec,
     output reg [16:0] pixel_addr,     // 輸出給 BRAM 的讀取地址 (1D)
     output wire out_show_pixel,        // 輸出給 Top 的顯示開關 (經過延遲同步)
     output reg [3:0] out_tile_id, // 新增：同步後的 Tile ID 輸出
@@ -64,49 +65,90 @@ module mem_addr_gen(
     // 每個 bit 代表一個 32x32 的區塊。1: 障礙物/地板, 0: 空地
     reg [79:0] map [0:14];
 
-    localparam T_EMPTY = 4'h0; //不能改這個數字!!
+    localparam T_EMPTY = 4'h0; //不能改empty的數字!!
     localparam T_SPIKE = 4'h1;
-    localparam T_GATE_1  = 4'h2;
-    localparam T_GATE_2  = 4'h3;
-    localparam T_GATE_3  = 4'h4;
-    localparam T_PLATE_1 = 4'h5;
-    localparam T_PLATE_2 = 4'h6;
-    localparam T_PLATE_3 = 4'h7;
-    localparam T_EXIT  = 4'h8;
-    localparam T_WALL  = 4'h9;
-    always @(*) begin
-        if (next_state == PLAY_SCENE) begin 
-            map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
-            map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
-            map[2]  = {20{T_EMPTY}};
-            map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[4]  = {20{T_EMPTY}};
-            map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[6]  = {20{T_EMPTY}};
-            map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[8]  = {20{T_EMPTY}};
-            map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[10] = {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
-            map[12] = {{15{T_EMPTY}}, T_EXIT};
-            map[13] = {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-            map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
-        end else if (next_state == BOSS_SCENE) begin 
-            map[0]  = {20{T_WALL}};
-            map[1]  = {20{T_WALL}};
-            map[2]  = {20{T_WALL}};
-            map[3]  = {20{T_WALL}};
-            map[4]  = {20{T_WALL}};
-            map[5]  = {20{T_WALL}};
-            map[6]  = {20{T_WALL}};
-            map[7]  = {20{T_WALL}};
-            map[8]  = {20{T_WALL}};
-            map[9]  = {20{T_EMPTY}};
-            map[10]  = {20{T_EMPTY}};
-            map[11]  = {20{T_WALL}};
-            map[12]  = {20{T_EMPTY}};
-            map[13]  = {20{T_EMPTY}};
-            map[14]  = {20{T_WALL}};
+    localparam T_SPIKE_L = 4'h2;
+    localparam T_GATE_1  = 4'h3;
+    localparam T_GATE_2  = 4'h4;
+    localparam T_GATE_3  = 4'h5;
+    localparam T_PLATE_1 = 4'h6;
+    localparam T_PLATE_2 = 4'h7;
+    localparam T_PLATE_3 = 4'h8;
+    localparam T_EXIT  = 4'h9;
+    localparam T_WALL  = 4'hA;
+    // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
+    reg [24:0] shift_tick;
+    wire shift_en = (shift_tick == 25'd25_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
+    reg [3:0] shift_tick_cnt;
+
+    always @(posedge clk, posedge rst) begin
+        if (rst) shift_tick <= 0;
+        else if (state == BOSS_SCENE) begin
+            if (shift_tick >= 25'd25_000_000) shift_tick <= 0;
+            else shift_tick <= shift_tick + 1;
+        end else shift_tick <= 0;
+    end
+
+    // --- 2. 地圖主邏輯 ---
+    always @(posedge clk, posedge rst) begin
+        if (rst) begin 
+            map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
+            map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
+            map[2]  <= {20{T_EMPTY}};
+            map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[4]  <= {20{T_EMPTY}};
+            map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[6]  <= {20{T_EMPTY}};
+            map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[8]  <= {20{T_EMPTY}};
+            map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+            map[12] <= {{15{T_EMPTY}}, T_EXIT};
+            map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
+            map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+        end else begin
+            if (next_state == PLAY_SCENE) begin
+                map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
+                map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
+                map[2]  <= {20{T_EMPTY}};
+                map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[4]  <= {20{T_EMPTY}};
+                map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[6]  <= {20{T_EMPTY}};
+                map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[8]  <= {20{T_EMPTY}};
+                map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+                map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+                map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+                map[12] <= {{15{T_EMPTY}}, T_EXIT};
+                map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
+                map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            end 
+            else if (next_state == BOSS_SCENE) begin
+                if (boss_sec <= 1) begin
+                    // 初始化 BOSS 房間
+                    map[0] <= {20{T_WALL}}; map[1] <= {20{T_WALL}}; map[2] <= {20{T_WALL}};
+                    map[3] <= {20{T_WALL}}; map[4] <= {20{T_WALL}}; map[5] <= {20{T_WALL}};
+                    map[6] <= {20{T_WALL}}; map[7] <= {20{T_WALL}}; map[8] <= {20{T_WALL}};
+                    map[9] <= {20{T_EMPTY}};
+                    map[10] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[11] <= {20{T_WALL}};
+                    map[12] <= {20{T_EMPTY}};
+                    map[13] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[14] <= {20{T_WALL}};
+                end 
+                else if (shift_en) begin // 關鍵修正：只有在 0.2 秒這一拍才移動
+                    // 向上排位移
+                    map[10][79:4] <= map[10][75:0];
+                    // 這裡用一個簡單的邏輯產生新尖刺：例如每 5 格產生一個
+                    map[10][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+
+                    // 向下排位移
+                    map[13][79:4] <= map[13][75:0];
+                    map[13][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                end
+            end
         end
     end
 
@@ -117,6 +159,7 @@ module mem_addr_gen(
     // 判斷當前掃描點是否落在地圖中的「1」區域
     wire is_tile = (current_tile_id == T_WALL) || 
                    (current_tile_id == T_SPIKE && spike_on) || 
+                   (current_tile_id == T_SPIKE_L) ||
                    (current_tile_id == T_EXIT) || 
                    (current_tile_id == T_PLATE_1) ||
                    (current_tile_id == T_PLATE_2) ||
@@ -179,6 +222,7 @@ module mem_addr_gen(
                         T_PLATE_3: b_off = 0;
                         T_GATE_3:  b_off = 12288;
                         T_SPIKE: b_off = 23552;
+                        T_SPIKE_L: b_off = 63616;
                         default: b_off = 0;
                     endcase
                 end 
@@ -236,6 +280,7 @@ module mem_addr_gen(
                     T_PLATE_3: b_off = 0;
                     T_GATE_3:  b_off = 12288;
                     T_SPIKE: b_off = 23552;
+                    T_SPIKE_L: b_off = 63616;
                     default: b_off = 0;
                 endcase
             end 

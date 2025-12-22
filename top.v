@@ -48,6 +48,26 @@ module top(
     debounce db1(.pb(btnR), .pb_debounced(btnR_db), .clk(clk_25MHz));
     onepulse op1(.signal(btnR_db), .clk(clk_25MHz), .op(btnR_op));
 
+    reg [31:0] cnt_boss;
+    reg [9:0] boss_sec;
+    always @(posedge clk_25MHz, posedge rst) begin
+        if (rst) begin 
+            cnt_boss <= 0;
+            boss_sec <= 0;
+        end else begin 
+            if (state != BOSS_SCENE) begin 
+                cnt_boss <= 0;
+                boss_sec <= 0;
+            end else begin
+                if (cnt_boss < 25000000) cnt_boss <= cnt_boss + 1;
+                else begin 
+                    cnt_boss <= 0;
+                    boss_sec <= boss_sec + 1;
+                end
+            end
+        end
+    end
+
     
     //MUSIC==========================================================================================
     // Internal Signal
@@ -224,7 +244,8 @@ module top(
         .out_is_char_sync_1(is_char_sync_1),
         .state(state),
         .spike_on(spike_on),
-        .next_state(next_state)
+        .next_state(next_state),
+        .boss_sec(boss_sec)
     );
 
     blk_mem_gen_0 blk_mem_gen_0_inst(
@@ -271,6 +292,7 @@ module top(
     localparam KEY_CODES_SPACE = 9'h29;
     localparam KEY_CODES_ENTER = 9'h5A;
     localparam KEY_CODES_Q= 9'h15;
+    localparam KEY_CODE_MINUS = 9'h7B;
 
     wire [511:0] key_down;
     wire [8:0] last_change;
@@ -284,6 +306,13 @@ module top(
         .rst(rst),
         .clk(clk_25MHz)//不確定
     );
+
+    wire key_down_op;
+    reg key_is_down;
+    always @(*) begin
+        key_is_down = |key_down;
+    end
+    onepulse op2(.signal(key_is_down), .clk(clk_25MHz), .op(key_down_op));
 
     //7-segment===============================================================================================================
     wire [15:0] nums;
@@ -387,49 +416,102 @@ module top(
     // --- 地圖數據 (20x15) ---
     reg [79:0] map [0:14];
 
-    localparam T_EMPTY = 4'h0; //不能改這個數字!!
+    localparam T_EMPTY = 4'h0; //不能改empty的數字!!
     localparam T_SPIKE = 4'h1;
-    localparam T_GATE_1  = 4'h2;
-    localparam T_GATE_2  = 4'h3;
-    localparam T_GATE_3  = 4'h4;
-    localparam T_PLATE_1 = 4'h5;
-    localparam T_PLATE_2 = 4'h6;
-    localparam T_PLATE_3 = 4'h7;
-    localparam T_EXIT  = 4'h8;
-    localparam T_WALL  = 4'h9;
-    always @(*) begin
-        if (next_state == PLAY_SCENE) begin 
-            map[0]  = {{19{T_EMPTY}}, {T_EMPTY}};
-            map[1]  = {{10{T_EMPTY}}, {10{T_WALL}}}; 
-            map[2]  = {20{T_EMPTY}};
-            map[3]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[4]  = {20{T_EMPTY}};
-            map[5]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[6]  = {20{T_EMPTY}};
-            map[7]  = {{10{T_WALL}}, {10{T_EMPTY}}};
-            map[8]  = {20{T_EMPTY}};
-            map[9]  = {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[10] = {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
-            map[11] = {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
-            map[12] = {{15{T_EMPTY}}, T_EXIT};
-            map[13] = {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
-            map[14] = {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
-        end else if (next_state == BOSS_SCENE) begin 
-            map[0]  = {20{T_WALL}};
-            map[1]  = {20{T_WALL}};
-            map[2]  = {20{T_WALL}};
-            map[3]  = {20{T_WALL}};
-            map[4]  = {20{T_WALL}};
-            map[5]  = {20{T_WALL}};
-            map[6]  = {20{T_WALL}};
-            map[7]  = {20{T_WALL}};
-            map[8]  = {20{T_WALL}};
-            map[9]  = {20{T_EMPTY}};
-            map[10]  = {20{T_EMPTY}};
-            map[11]  = {20{T_WALL}};
-            map[12]  = {20{T_EMPTY}};
-            map[13]  = {20{T_EMPTY}};
-            map[14]  = {20{T_WALL}};
+    localparam T_SPIKE_L = 4'h2;
+    localparam T_GATE_1  = 4'h3;
+    localparam T_GATE_2  = 4'h4;
+    localparam T_GATE_3  = 4'h5;
+    localparam T_PLATE_1 = 4'h6;
+    localparam T_PLATE_2 = 4'h7;
+    localparam T_PLATE_3 = 4'h8;
+    localparam T_EXIT  = 4'h9;
+    localparam T_WALL  = 4'hA;
+    // --- 1. 產生位移脈衝 (例如每 0.2 秒移動一格) ---
+    reg [24:0] shift_tick;
+    wire shift_en = (shift_tick == 25'd25_000_000); // 25MHz 下，5,000,000 拍 = 0.2秒
+    reg [3:0] shift_tick_cnt;
+
+    always @(posedge clk_25MHz or posedge rst) begin
+        if (rst) shift_tick <= 0;
+        else if (state == BOSS_SCENE) begin
+            if (shift_tick >= 25'd25_000_000) shift_tick <= 0;
+            else shift_tick <= shift_tick + 1;
+        end else shift_tick <= 0;
+    end
+
+    // --- 2. 地圖主邏輯 ---
+    always @(posedge clk_25MHz or posedge rst) begin
+        if (rst) begin 
+            map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
+            map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
+            map[2]  <= {20{T_EMPTY}};
+            map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[4]  <= {20{T_EMPTY}};
+            map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[6]  <= {20{T_EMPTY}};
+            map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+            map[8]  <= {20{T_EMPTY}};
+            map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+            map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+            map[12] <= {{15{T_EMPTY}}, T_EXIT};
+            map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
+            map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+        end else begin
+            if (next_state == PLAY_SCENE) begin
+                map[0]  <= {{19{T_EMPTY}}, {T_EMPTY}};
+                map[1]  <= {{10{T_EMPTY}}, {10{T_WALL}}}; 
+                map[2]  <= {20{T_EMPTY}};
+                map[3]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[4]  <= {20{T_EMPTY}};
+                map[5]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[6]  <= {20{T_EMPTY}};
+                map[7]  <= {{10{T_WALL}}, {10{T_EMPTY}}};
+                map[8]  <= {20{T_EMPTY}};
+                map[9]  <= {{7{T_EMPTY}}, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+                map[10] <= {{4{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {4{T_EMPTY}}, T_GATE_2, {4{T_EMPTY}}, T_GATE_3, T_EMPTY, T_EXIT};
+                map[11] <= {{2{T_WALL}}, {3{T_PLATE_1}}, {15{T_WALL}}};
+                map[12] <= {{15{T_EMPTY}}, T_EXIT};
+                map[13] <= {{2{T_EMPTY}}, T_EXIT, T_SPIKE, T_EMPTY, T_GATE_1, {9{T_EMPTY}}, {5{T_PLATE_3}}};
+                map[14] <= {{5{T_WALL}}, {5{T_PLATE_1}}, {5{T_PLATE_2}}, {5{T_WALL}}};
+            end 
+            else if (next_state == BOSS_SCENE) begin
+                if (boss_sec <= 1) begin
+                    // 初始化 BOSS 房間
+                    map[0] <= {20{T_WALL}}; map[1] <= {20{T_WALL}}; map[2] <= {20{T_WALL}};
+                    map[3] <= {20{T_WALL}}; map[4] <= {20{T_WALL}}; map[5] <= {20{T_WALL}};
+                    map[6] <= {20{T_WALL}}; map[7] <= {20{T_WALL}}; map[8] <= {20{T_WALL}};
+                    map[9] <= {20{T_EMPTY}};
+                    map[10] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[11] <= {20{T_WALL}};
+                    map[12] <= {20{T_EMPTY}};
+                    map[13] <= {{19{T_EMPTY}}, T_SPIKE_L}; // 初始尖刺
+                    map[14] <= {20{T_WALL}};
+                end 
+                else if (shift_en) begin // 關鍵修正：只有在 0.2 秒這一拍才移動
+                    // 向上排位移
+                    map[10][79:4] <= map[10][75:0];
+                    // 這裡用一個簡單的邏輯產生新尖刺：例如每 5 格產生一個
+                    map[10][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+
+                    // 向下排位移
+                    map[13][79:4] <= map[13][75:0];
+                    map[13][3:0] <= (map[10][39:36] == T_SPIKE_L) ? T_SPIKE_L : T_EMPTY;
+                end
+            end
+        end
+    end
+
+    reg [3:0] boss_kill = 0;
+    always @(posedge clk_25MHz or posedge rst) begin 
+        if (rst) begin 
+            boss_kill <= 0;
+        end else begin 
+            if (state != BOSS_SCENE) boss_kill <= 0;
+            else begin 
+                if (key_down_op && (last_change == KEY_CODE_MINUS || last_change == KEY_CODES_1)) boss_kill <= boss_kill + 1;
+            end
         end
     end
 
@@ -575,7 +657,7 @@ module top(
             q_prev <= 1'b0;
             enter_prev <= 1'b0;
         end else begin
-            if (state == START_SCENE || (state == PLAY_SCENE && next_state == BOSS_SCENE)) begin 
+            if (state == START_SCENE || (state == BOSS_SCENE && boss_sec <= 1)) begin 
                 img_x <= 10'd32;
                 img_y <= 10'd320;
                 img_x_1 <= 10'd32;
@@ -788,11 +870,12 @@ module top(
         end else if (state == BOSS_SCENE) begin 
             if (show_pixel_sync) begin
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
-                // if (!is_char_sync && !is_char_sync_1) begin
-                //     if (current_id_sync == T_SPIKE) begin
-                //         {vgaRed, vgaGreen, vgaBlue} = pixel;
-                //     end
-                // end
+                if (boss_kill > 0 && boss_kill < 8) begin //一開始是全紅 好像也有延遲
+                    if (h_cnt < (80*boss_kill) && v_cnt < 128) vgaRed = 4'hF;
+                end else if (boss_kill >= 0) begin 
+                    if (h_cnt < (80*boss_kill) && v_cnt < 128) vgaRed = 4'hF;
+                    if (h_cnt < (80*(boss_kill - 8)) && v_cnt < 256) vgaRed = 4'hF;
+                end
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
             end
@@ -862,4 +945,5 @@ endmodule
 //48578 lose 80*60 (43776-48575)
 //53378 win 80*60 (48576-53375)
 //63618 boss 80*128 (53376-63615)
+//64642 spike_left 32*32 (63616-64639);
 //角色32*32
