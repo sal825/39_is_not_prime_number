@@ -984,6 +984,19 @@ module top(
         end
     end
 
+    always @(posedge clk_25MHz or posedge rst) begin
+        if (rst) begin
+            data_out <= 4'd15; // 預設 15，Slave 就不會滅掉任何燈
+        end else begin
+            if (state == BOSS_SCENE) begin
+                data_out <= 4'd14; // 發送代碼 14 給 Slave
+            end else if (state == PLAY_SCENE) begin
+                data_out <= 4'd1;  // 舉例：一般遊戲中發送 1
+            end else begin
+                data_out <= 4'd15; // 其他狀態不動作
+            end
+        end
+    end
 endmodule
 
 //1026 tile 32*32 (0-1023)
