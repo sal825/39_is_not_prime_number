@@ -86,24 +86,7 @@ module top(
     
     // 關鍵修正 2：音量與開關同步鎖存
     reg [1:0] volume_reg;
-    // always @(posedge clk) begin
-    //     if (rst) begin
-    //         volume_reg <= 2'b00;
-    //         en_reg <= 0;
-    //         freq_outL_reg <= 0;
-    //         freq_outR_reg <= 0;
-    //     end else begin
-    //         // 鎖存開關與音量，對齊 100MHz
-    //         en_reg <= (sw[0] || sw[1]);
-    //         volume_reg <= sw[1:0];
-            
-    //         // 鎖存除法結果，過濾組合邏輯雜訊
-    //         // 增加保護判斷：若 tone 為 0 則輸出 0 (靜音)
-    //         freq_outL_reg <= (toneL == 0) ? 22'd0 : (50000000 / toneL);
-    //         freq_outR_reg <= (toneR == 0) ? 22'd0 : (50000000 / toneR);
-    //     end
-    // end
-    // 在音樂相關訊號區修改
+    
     reg [31:0] toneL_stable, toneR_stable;
 
     always @(posedge clk) begin

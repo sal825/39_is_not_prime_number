@@ -2,6 +2,11 @@ module lab6_practice_slave (
     input wire clk,
     input wire rst,
     input wire [3:0] data_in,
+    input wire [15:0] sw,
+    output wire audio_mclk,
+    output wire audio_lrck,
+    output wire audio_sck,
+    output wire audio_sdin,
     output wire [6:0] DISPLAY,
     output wire [3:0] DIGIT,
     output reg [15:0] led
@@ -90,4 +95,81 @@ module lab6_practice_slave (
             end
         end
     end
+
+    // Internal Signal
+    wire clk22;
+    clock_divider #(.n(22)) clock_22(.clk(clk), .clk_div(clk22));    // for display
+
+    // --- 音樂相關訊號修正 ---
+    wire [15:0] audio_in_left, audio_in_right;
+    reg [11:0] ibeatNum;
+    reg en_reg;               // 同步後的開關
+    wire [31:0] toneL, toneR;
+    
+    // 關鍵修正 1：將頻率輸出改為暫存器 (Pipelining)
+    reg [21:0] freq_outL_reg, freq_outR_reg;
+    
+    // 關鍵修正 2：音量與開關同步鎖存
+    reg [1:0] volume_reg;
+    
+    reg [31:0] toneL_stable, toneR_stable;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            toneL_stable <= 0;
+            toneR_stable <= 0;
+            freq_outL_reg <= 0;
+            freq_outR_reg <= 0;
+            en_reg <= 0;
+            volume_reg <= 2'b00;
+        end else begin
+            // 第一層：先穩定 tone
+            toneL_stable <= toneL;
+            toneR_stable <= toneR;
+            en_reg <= (sw[0] || sw[1]);
+            volume_reg <= sw[1:0];
+            // 第二層：計算頻率。確保除數不為 0
+            if (toneL_stable == 0) freq_outL_reg <= 0;
+            else freq_outL_reg <= (50000000 / toneL_stable);
+            
+            if (toneR_stable == 0) freq_outR_reg <= 0;
+            else freq_outR_reg <= (50000000 / toneR_stable);
+        end
+    end
+    // ibeatNum 維持在 clk22，但它是給 music ROM 用的，沒問題
+    always @(posedge clk22 or posedge rst) begin
+        if (rst) ibeatNum <= 0;
+        else begin
+            if (en_reg == 0 || ibeatNum == 12'd1200) ibeatNum <= 12'd0;
+            else ibeatNum <= ibeatNum + 1;
+        end
+    end
+
+    music_wii music(
+        .ibeatNum(ibeatNum),
+        .en(en_reg),
+        .toneL(toneL),
+        .toneR(toneR)
+    );
+
+    note_gen noteGen_00(
+        .clk(clk), 
+        .rst(rst), 
+        .volume(volume_reg),       // 使用同步後的音量
+        .note_div_left(freq_outL_reg), // 使用管線化後的頻率
+        .note_div_right(freq_outR_reg),
+        .audio_left(audio_in_left),
+        .audio_right(audio_in_right)
+    );
+
+    speaker_control sc(
+        .clk(clk), 
+        .rst(rst), 
+        .audio_in_left(audio_in_left),
+        .audio_in_right(audio_in_right),
+        .audio_mclk(audio_mclk),
+        .audio_lrck(audio_lrck),
+        .audio_sck(audio_sck),
+        .audio_sdin(audio_sdin)
+    );
 endmodule
