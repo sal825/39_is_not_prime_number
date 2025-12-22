@@ -767,19 +767,28 @@ module top(
 
                 // 2. Enter 確定瞬移 (角色 0)
                 if (skill_mode && key_down[KEY_CODES_ENTER] && !enter_prev) begin
-                    if (target_tile_id == T_EMPTY && on_ground) begin
+                    if (map[cursor_y][(19-cursor_x)*4 +: 4] == T_EMPTY && on_ground) begin 
                         img_x <= cursor_x << 5;
                         img_y <= cursor_y << 5;
                         jumping <= 0;
                         on_ground <= 1;
                         teleporting <= 1'b1;
                         skill_mode <= 0;
-                    end else begin
-                        fail_x <= cursor_x << 5;
-                        fail_y <= cursor_y << 5;
-                        fail_flash_cnt <= 5'd30; // 亮紅色的時間 (30幀約0.5秒)
-                        skill_mode <= 0;
                     end
+                    
+                    // if (target_tile_id == T_EMPTY && on_ground) begin
+                    //     img_x <= cursor_x << 5;
+                    //     img_y <= cursor_y << 5;
+                    //     jumping <= 0;
+                    //     on_ground <= 1;
+                    //     teleporting <= 1'b1;
+                    //     skill_mode <= 0;
+                    // end else begin
+                    //     fail_x <= cursor_x << 5;
+                    //     fail_y <= cursor_y << 5;
+                    //     fail_flash_cnt <= 5'd30; // 亮紅色的時間 (30幀約0.5秒)
+                    //     skill_mode <= 0;
+                    // end
                 end
                 enter_prev <= key_down[KEY_CODES_ENTER];
 
@@ -926,22 +935,24 @@ module top(
         if (!valid_sync) begin
             {vgaRed, vgaGreen, vgaBlue} = 12'h000;
         end
-        // --- 優先權 1：瞬移失敗紅框 (對齊 sync 座標) ---
-        else if (fail_flash_cnt > 0 && 
-                (h_sync >= fail_x) && (h_sync < (fail_x + 32)) &&
-                (v_sync >= fail_y) && (v_sync < (fail_y + 32))) 
-        begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'hF00; // 純紅色
-        end
-        // --- 優先權 2：Q 技能選取白框 ---
-        else if (skill_mode && 
-                (h_sync >= abs_target_x) && (h_sync < (abs_target_x + 32)) &&
-                (v_sync >= abs_target_y) && (v_sync < (abs_target_y + 32))) 
-        begin
-            {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; // 純白色
-        end
+        // // --- 優先權 1：瞬移失敗紅框 (對齊 sync 座標) ---
+        // else if (fail_flash_cnt > 0 && 
+        //         (h_sync >= fail_x) && (h_sync < (fail_x + 32)) &&
+        //         (v_sync >= fail_y) && (v_sync < (fail_y + 32)))
+        // begin
+        //     {vgaRed, vgaGreen, vgaBlue} = 12'hF00; // 純紅色
+        // end
+        // // --- 優先權 2：Q 技能選取白框 ---
+        // else if (skill_mode && 
+        //         (h_sync >= abs_target_x) && (h_sync < (abs_target_x + 32)) &&
+        //         (v_sync >= abs_target_y) && (v_sync < (abs_target_y + 32))) 
+        // begin
+        //     {vgaRed, vgaGreen, vgaBlue} = 12'hFFF; // 純白色
+        // end
         // --- 優先權 3：場景邏輯 ---
         else if (state == PLAY_SCENE) begin
+            
+            
             if (show_pixel_sync) begin
                 {vgaRed, vgaGreen, vgaBlue} = pixel;
                 // 處理 Plate/Gate/Spike 變色邏輯
@@ -962,6 +973,11 @@ module top(
                 end
             end else begin
                 {vgaRed, vgaGreen, vgaBlue} = 12'h000;
+            end
+
+            if (skill_mode && (h_sync >> 5) == cursor_x && (v_sync >> 5) == cursor_y) begin 
+                if (current_id_sync == T_EMPTY) {vgaRed, vgaGreen, vgaBlue} = 12'hFFF;
+                else {vgaRed, vgaGreen, vgaBlue} = 12'hF00;
             end
         end 
         else if (state == BOSS_SCENE) begin 
